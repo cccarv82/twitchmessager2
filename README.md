@@ -15,10 +15,36 @@ Um programa de monitoramento de giveaways da Twitch com interface TUI (Text User
 
 ## Pré-requisitos
 
-- Node.js (versão recomendada: 14+)
-- NPM (Node Package Manager)
-- Conta de desenvolvedor na Twitch
-- Uma ou mais contas da Twitch para monitoramento
+### Node.js e NPM
+- Baixe e instale o Node.js (v14+) em [nodejs.org](https://nodejs.org/)
+- NPM (Node Package Manager) é instalado automaticamente com o Node.js
+- Verifique a instalação com:
+  ```bash
+  node --version
+  npm --version
+  ```
+
+### Conta de Desenvolvedor Twitch
+1. Acesse [dev.twitch.tv](https://dev.twitch.tv/)
+2. Faça login com sua conta Twitch
+3. Vá para o [Console](https://dev.twitch.tv/console)
+4. Clique em "Registrar Seu Aplicativo"
+5. Preencha:
+   - Nome: Escolha um nome único
+   - URL de Redirecionamento OAuth: `http://localhost`
+   - Categoria: Chat Bot
+6. Após registrar, você receberá:
+   - Client ID
+   - Client Secret
+7. Copie essas credenciais para seu `config.ini`
+
+### Contas Twitch para Monitoramento
+- Crie contas secundárias em [twitch.tv/signup](https://www.twitch.tv/signup)
+- Recomendações:
+  - Use contas com mais de 24h de criação
+  - Evite usar sua conta principal
+  - Mantenha as contas verificadas por email
+  - Recomendado: 3-4 contas para início
 
 ## Instalação
 
@@ -30,29 +56,29 @@ Um programa de monitoramento de giveaways da Twitch com interface TUI (Text User
 ## Configuração
 
 ### config.ini
-[CLIENT]
-ID='seu_client_id'
+[CLIENT] \
+ID='seu_client_id' \
 SECRET='seu_client_secret'
 
-[GAME]
+[GAME] \
 NAME='nome_do_jogo'
 
-[PATTERN_DETECTION]
-THRESHOLD=5
-TIME_WINDOW=30000
-CLEANUP_INTERVAL=60000
+[PATTERN_DETECTION] \
+THRESHOLD=5 \
+TIME_WINDOW=30000 \
+CLEANUP_INTERVAL=60000 \
 MIN_MESSAGE_LENGTH=3
 
 ### contas.json
-[
-  {
-    "nome": "conta_principal",
-    "token": "oauth:xxx",
-    "access_token": "xxx",
-    "refresh_token": "xxx",
-    "expiry": "2024-12-03T23:30:39.375Z",
-    "isListener": true
-  }
+[ \
+  { \
+    "nome": "conta_principal", \
+    "token": "oauth:xxx", \
+    "access_token": "xxx", \
+    "refresh_token": "xxx", \
+    "expiry": "2024-12-03T23:30:39.375Z", \
+    "isListener": true \
+  } \
 ]
 
 ## Estrutura do Projeto

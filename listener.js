@@ -554,7 +554,16 @@ async function main() {
         clearScreen(); // Limpa o console novamente após todas as conexões
         console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
         console.log(chalk.green('✓ Monitoramento iniciado com sucesso!'));
-        console.log(chalk.yellow('Pressione Ctrl+C para encerrar\n'));
+
+        // Adiciona horário de início
+        const startTime = new Date();
+        console.log(chalk.cyan(`Iniciado em: ${startTime.toLocaleTimeString()}`));
+
+        // Calcula e mostra próxima atualização
+        const nextUpdate = new Date(startTime.getTime() + 30 * 60000);
+        console.log(chalk.cyan(`Próxima atualização de canais: ${nextUpdate.toLocaleTimeString()}`));
+
+        console.log(chalk.yellow('\nPressione Ctrl+C para encerrar\n'));
 
         // Mantém o processo rodando e desconecta adequadamente
         process.on('SIGINT', async () => {

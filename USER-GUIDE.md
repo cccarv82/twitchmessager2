@@ -46,10 +46,10 @@ O programa apresenta as seguintes opções:
 ## Configurações Avançadas
 
 ### Pattern Detection (config.ini)
-[PATTERN_DETECTION]
-THRESHOLD=5        # Mínimo de mensagens similares
-TIME_WINDOW=30000  # Janela de tempo (ms)
-CLEANUP_INTERVAL=60000  # Limpeza de histórico (ms)
+[PATTERN_DETECTION] \
+THRESHOLD=5        # Mínimo de mensagens similares \
+TIME_WINDOW=30000  # Janela de tempo (ms) \
+CLEANUP_INTERVAL=60000  # Limpeza de histórico (ms) \
 MIN_MESSAGE_LENGTH=3    # Tamanho mínimo da mensagem
 
 ### Palavras-chave Monitoradas
