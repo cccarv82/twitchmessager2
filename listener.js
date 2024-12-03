@@ -180,43 +180,72 @@ const WHISPER_PATTERNS = [
   'parabéns'
 ];
 
-// Nova função para verificar se alguma conta ganhou ou foi mencionada
-function checkWinnerOrMention(message, usernames, messageUser, channel) {
-  const messageLower = message.toLowerCase();
-  const timestamp = new Date().toLocaleTimeString();
-  const channelName = channel.replace('#', '');
-  const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
+// Adicione após as outras funções de log
+function logWin(channel, username, message) {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+        timestamp,
+        channel: channel.replace('#', ''),
+        winner: username,
+        message,
+        url: `https://twitch.tv/${channel.replace('#', '')}`
+    };
 
-  // Verifica se alguma conta foi mencionada
-  for (const username of usernames) {
-    const usernameLower = username.toLowerCase();
+    const logFile = 'wins.json';
+    let wins = [];
     
-    // Verifica padrões de vitória
-    if (WINNER_PATTERNS.some(pattern => messageLower.includes(pattern))) {
-      if (messageLower.includes(usernameLower)) {
-        return {
-          type: 'winner',
-          message: chalk.green.bold(
-            `\n🎉 🎉 🎉 🎉 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
-            `Mensagem original: ${messageUser}: ${message}\n`
-          )
-        };
-      }
+    // Lê o arquivo existente ou cria um novo
+    try {
+        wins = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+    } catch (error) {
+        // Arquivo não existe, começará com array vazio
     }
 
-    // Verifica menções (quando o username aparece na mensagem)
-    if (messageLower.includes(usernameLower) && messageUser.toLowerCase() !== usernameLower) {
-      return {
-        type: 'mention',
-        message: chalk.green(
-          `\n👉 👉 👉 👉 👉 [${timestamp}] ${channelLink} | ${chalk.yellow(username)} foi mencionado!\n` +
-          `${messageUser}: ${message}\n`
-        )
-      };
-    }
-  }
+    wins.push(logEntry);
+    fs.writeFileSync(logFile, JSON.stringify(wins, null, 2));
+}
 
-  return null;
+// Modifique a função checkWinnerOrMention para incluir o log
+function checkWinnerOrMention(message, usernames, messageUser, channel) {
+    const messageLower = message.toLowerCase();
+    const timestamp = new Date().toLocaleTimeString();
+    const channelName = channel.replace('#', '');
+    const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
+
+    // Verifica se alguma conta foi mencionada
+    for (const username of usernames) {
+        const usernameLower = username.toLowerCase();
+        
+        // Verifica padrões de vitória
+        if (WINNER_PATTERNS.some(pattern => messageLower.includes(pattern))) {
+            if (messageLower.includes(usernameLower)) {
+                // Adiciona o log da vitória
+                logWin(channel, username, message);
+
+                return {
+                    type: 'winner',
+                    message: chalk.green.bold(
+                        `\n🎉 🎉 🎉 🎉 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
+                        `Mensagem original: ${messageUser}: ${message}\n` +
+                        `Vitória registrada em wins.json\n`
+                    )
+                };
+            }
+        }
+
+        // Verifica menções (quando o username aparece na mensagem)
+        if (messageLower.includes(usernameLower) && messageUser.toLowerCase() !== usernameLower) {
+            return {
+                type: 'mention',
+                message: chalk.green(
+                    `\n👉 👉 👉 👉 👉 [${timestamp}] ${channelLink} | ${chalk.yellow(username)} foi mencionado!\n` +
+                    `${messageUser}: ${message}\n`
+                )
+            };
+        }
+    }
+
+    return null;
 }
 
 // Nova função para detectar comandos de participação
@@ -394,7 +423,7 @@ async function connectBot(conta, canais) {
             username: conta.nome,
             password: token,
         },
-        channels: canais,
+        channels: conta.isListener ? canais : [],
         logger: {
             info: () => {},
             warn: () => {},
@@ -409,7 +438,9 @@ async function connectBot(conta, canais) {
     try {
         await bot.connect();
         if (conta.isListener) {
-            console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} conectado`));
+            console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
+        } else {
+            console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} pronto para participações`));
         }
         
         const config = getConfig();
@@ -443,7 +474,40 @@ async function connectBot(conta, canais) {
                 // Se parece ser um comando de participação
                 if (pattern.isParticipationCommand) {
                     const command = pattern.message.trim();
-                    await participateWithAllAccounts(bot, channel, command, conta.isListener);
+                    if (conta.isListener) {
+                        // Se for o listener, coordena a participação de todos
+                        const channelName = channel.replace('#', '');
+                        for (const participantBot of global.activeBots) {
+                            try {
+                                // Se não for o listener, entra no canal, participa e depois sai
+                                const participantConta = contas.find(c => c.nome === participantBot.getUsername());
+                                if (!participantConta.isListener) {
+                                    // Primeiro entra no canal
+                                    if (!participantBot.getChannels().includes(channel)) {
+                                        await participantBot.join(channel);
+                                        // Aguarda um momento para garantir a conexão
+                                        await new Promise(resolve => setTimeout(resolve, 1000));
+                                    }
+                                    // Depois participa
+                                    await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
+                                    
+                                    // Sai do canal após participar
+                                    setTimeout(async () => {
+                                        try {
+                                            await participantBot.part(channel);
+                                        } catch (error) {
+                                            console.error(`Erro ao sair do canal ${channel}:`, error);
+                                        }
+                                    }, 5000);
+                                } else {
+                                    // Se for o listener, apenas participa
+                                    await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
+                                }
+                            } catch (error) {
+                                console.error(`Erro ao participar com ${participantBot.getUsername()}:`, error);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -531,11 +595,15 @@ async function main() {
         const contas = JSON.parse(fs.readFileSync("contas.json", "utf8"));
         
         const listenerConta = contas.find(c => c.isListener);
-        if (listenerConta) {
-            console.log(chalk.green(`➜ Conta listener: ${chalk.yellow(listenerConta.nome)}`));
-            console.log(chalk.green(`➜ Monitorando ${chalk.yellow(canais.length)} canais`));
-            console.log(chalk.green(`➜ Usando ${chalk.yellow(contas.length)} contas\n`));
+        if (!listenerConta) {
+            console.error(chalk.red('Erro: Nenhuma conta configurada como listener!'));
+            console.log(chalk.yellow('Configure uma conta como listener no arquivo contas.json'));
+            process.exit(1);
         }
+
+        console.log(chalk.green(`➜ Conta listener: ${chalk.yellow(listenerConta.nome)}`));
+        console.log(chalk.green(`➜ Monitorando ${chalk.yellow(canais.length)} canais`));
+        console.log(chalk.green(`➜ Usando ${chalk.yellow(contas.length)} contas para participação\n`));
 
         console.log(chalk.cyan('Iniciando bots...\n'));
 
@@ -584,7 +652,7 @@ async function main() {
     }
 }
 
-// Adicione uma limpeza periódica do histórico de participações
+// Adiciona uma limpeza periódica do histórico de participações
 setInterval(() => {
     participationHistory.clear();
 }, 1800000); // Limpa a cada 30 minutos
