@@ -205,8 +205,32 @@ function logWin(channel, username, message) {
     fs.writeFileSync(logFile, JSON.stringify(wins, null, 2));
 }
 
-// Modifique a função checkWinnerOrMention para incluir o log
-function checkWinnerOrMention(message, usernames, messageUser, channel) {
+// Adicione esta função para celebrar a vitória
+async function celebrateWin(bot, channel, username) {
+    try {
+        // Aguarda 15 segundos
+        await new Promise(resolve => setTimeout(resolve, 15000));
+        
+        // Envia mensagem de celebração
+        await bot.say(channel, 'uhuuulll');
+        
+        // Aguarda 5 minutos antes de sair (se não for o listener)
+        const participantConta = contas.find(c => c.nome === username);
+        if (!participantConta.isListener) {
+            await new Promise(resolve => setTimeout(resolve, 300000)); // 5 minutos
+            try {
+                await bot.part(channel);
+            } catch (error) {
+                console.error(`Erro ao sair do canal ${channel}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error(`Erro ao celebrar vitória para ${username}:`, error);
+    }
+}
+
+// Modifique a função checkWinnerOrMention
+function checkWinnerOrMention(message, usernames, messageUser, channel, currentBot) {
     const messageLower = message.toLowerCase();
     const timestamp = new Date().toLocaleTimeString();
     const channelName = channel.replace('#', '');
@@ -222,12 +246,18 @@ function checkWinnerOrMention(message, usernames, messageUser, channel) {
                 // Adiciona o log da vitória
                 logWin(channel, username, message);
 
+                // Se o bot atual é o vencedor, programa a celebração
+                if (currentBot.getUsername().toLowerCase() === usernameLower) {
+                    celebrateWin(currentBot, channel, username);
+                }
+
                 return {
                     type: 'winner',
                     message: chalk.green.bold(
                         `\n🎉 🎉 🎉 🎉 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
                         `Mensagem original: ${messageUser}: ${message}\n` +
-                        `Vitória registrada em wins.json\n`
+                        `Vitória registrada em wins.json\n` +
+                        `Celebração programada em 15 segundos...\n`
                     )
                 };
             }
@@ -525,6 +555,12 @@ async function connectBot(conta, canais) {
                 }
 
                 await participateWithAllAccounts(bot, channel, participationCommand, conta.isListener);
+            }
+
+            // Verifica se alguém ganhou ou foi mencionado
+            const winnerOrMention = checkWinnerOrMention(message, usernames, tags.username, channel, bot);
+            if (winnerOrMention) {
+                console.log(winnerOrMention.message);
             }
         });
 
