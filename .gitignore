@@ -1,0 +1,9 @@
+canais.json
+config.ini
+contas.json
+help.md
+package-lock.json
+node_modules/
+log/
+contas*
+whispers.json

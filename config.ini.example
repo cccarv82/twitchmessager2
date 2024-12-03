@@ -1,0 +1,12 @@
+[CLIENT]
+ID='YOUR-TWITCH-CLIENT-ID'
+SECRET='YOUR-TWITCH-CLIENT-SECRET'
+
+[GAME]
+NAME=''
+
+[PATTERN_DETECTION]
+THRESHOLD=5 # Threshold for pattern detection
+TIME_WINDOW=30000 # Time window for pattern detection
+CLEANUP_INTERVAL=60000 # Cleanup interval for pattern detection
+MIN_MESSAGE_LENGTH=3 # Minimum message length for pattern detection
