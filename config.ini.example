@@ -10,3 +10,15 @@ THRESHOLD=5 # Threshold for pattern detection
 TIME_WINDOW=30000 # Time window for pattern detection
 CLEANUP_INTERVAL=60000 # Cleanup interval for pattern detection
 MIN_MESSAGE_LENGTH=3 # Minimum message length for pattern detection
+
+[KEYWORDS]
+PARTICIPATION=!ticket,!join,winner,giveaway,key,!raffle,!sorteio,!sorteo,!claim
+WINNER=won the giveaway,ganhou o sorteio,ganhou o giveaway,won the raffle,is the winner,é o vencedor,é a vencedora,foi o vencedor,foi a vencedora,has won
+WHISPER=you won,você ganhou,winner,ganhador,key,chave,code,código,congratulations,parabéns
+
+[PARTICIPATION_TRIGGERS]
+type !join=!join
+type !ticket=!ticket
+digite !participar=!participar
+digite !sorteio=!sorteio
+!raffle=!raffle
