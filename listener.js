@@ -223,6 +223,18 @@ function checkWinnerOrMention(message, usernames, messageUser, channel, currentB
 
         // Verifica menções (quando o username aparece na mensagem)
         if (messageLower.includes(usernameLower) && messageUser.toLowerCase() !== usernameLower) {
+            // Notifica no Discord
+            if (global.pluginManager) {
+                const discordPlugin = global.pluginManager.plugins.get('Discord Notifier');
+                if (discordPlugin) {
+                    discordPlugin.useHook('sendDiscordNotification',
+                        '👋 Menção Detectada',
+                        `Canal: ${channelName}\nDe: ${messageUser}\nPara: ${username}\nMensagem: ${message}`,
+                        { color: 0x00FF00 }
+                    );
+                }
+            }
+
             return {
                 type: 'mention',
                 message: chalk.green(
@@ -445,7 +457,7 @@ async function connectBot(conta, canais) {
 
         // Log de sucesso
         if (conta.isListener) {
-            console.log(chalk.green(`����� Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
+            console.log(chalk.green(` Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
         } else {
             console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} pronto para participações`));
         }
