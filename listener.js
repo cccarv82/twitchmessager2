@@ -3,6 +3,7 @@ const fs = require("fs");
 const ini = require("ini");
 const chalk = require("chalk");
 const { exec } = require('child_process');
+const PluginManager = require('./src/plugins/PluginManager');
 
 // Estrutura para armazenar mensagens por canal
 const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
@@ -567,6 +568,9 @@ async function connectBot(conta, canais) {
 function clearScreen() {
     process.stdout.write('\x1Bc');
 }
+
+// Inicializa o gerenciador de plugins globalmente
+global.pluginManager = new PluginManager();
 
 // Modifique a função main
 async function main() {
