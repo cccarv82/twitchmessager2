@@ -1,14 +1,30 @@
 # Auto Responder Plugin
 
-Gerencia respostas automáticas para whispers e vitórias na Twitch.
+Plugin para respostas automáticas a whispers e vitórias.
 
-## Características
+## Features
 - Respostas automáticas para whispers
 - Respostas automáticas para vitórias
 - Detecção automática de idioma
-- Suporte para Português, Inglês e Espanhol
 - Rate limiting para evitar spam
 - Integração com Discord para logs
+
+## Hooks Utilizados
+
+### Smart Keywords
+- `detectLanguage(message)` - Detecta o idioma de uma mensagem
+  - **Retorno**: `{ result: string, confidence: number }`
+
+### Discord Notifier
+- `sendDiscordNotification(title, message, options)` - Envia notificação para o Discord
+  - **Parâmetros**:
+    - `title` (string) - Título da mensagem
+    - `message` (string) - Conteúdo da mensagem
+    - `options` (object) - Opções de formatação
+
+## Eventos Escutados
+- `onWhisperReceived(from, message, recipientUsername)` - Responde whispers
+- `onWin(channel, prize)` - Responde vitórias
 
 ## Configuração
 ```json

@@ -1,57 +1,39 @@
 # Smart Keywords Plugin
 
-Plugin que implementa detecção inteligente de padrões usando processamento de linguagem natural.
-
-## Funcionalidades
-
-- 🧠 Aprendizado automático de padrões
-- 🌍 Suporte a múltiplos idiomas
-- 🎯 Redução de falsos positivos
-- 📊 Análise estatística de padrões
+Plugin para detecção inteligente de padrões e idiomas.
 
 ## Hooks Fornecidos
 
 ### detectLanguage
-Detecta o idioma de um texto:
+Detecta o idioma de um texto.
+
+**Parâmetros:**
+- `text` (string) - Texto para análise
+
+**Retorno:**
+- `Array<{result: string, confidence: number}>` - Idiomas detectados e confiança
+
+**Exemplo:**
 ```javascript
-const [{ result }] = await this.useHook('detectLanguage', 'texto para analisar');
-// result: 'pt', 'en', 'es', etc
+const [{ result, confidence }] = await plugin.useHook('detectLanguage', 'Hello world');
+// result: 'en', confidence: 0.95
 ```
 
-### calculateEntropy
-Calcula a entropia de um texto:
-```javascript
-const [{ result }] = await this.useHook('calculateEntropy', 'texto');
-// result: 0.75 (0-1)
-```
-
-### analyzePattern
-Analisa um padrão de mensagem:
-```javascript
-const [{ result }] = await this.useHook('analyzePattern', 'mensagem', {
-    checkEntropy: true,
-    checkLanguage: true
-});
-```
-
-### getKnownPatterns
-Retorna padrões conhecidos:
-```javascript
-const [{ result }] = await this.useHook('getKnownPatterns', {
-    minConfidence: 0.8,
-    language: 'pt'
-});
-```
+## Features
+- Detecção de idioma
+- Aprendizado de padrões
+- Redução de falsos positivos
+- Atualização automática de padrões
 
 ## Configuração
-
 ```json
 {
+    "enabled": true,
     "features": {
-        "patternLearning": {
-            "enabled": true,
-            "minOccurrences": 3
-        }
+        "patternLearning": { "enabled": true },
+        "languageDetection": { "enabled": true },
+        "falsePositiveReduction": { "enabled": true },
+        "autoUpdate": { "enabled": true }
     }
 }
 ```
