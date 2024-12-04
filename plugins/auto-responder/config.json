@@ -1,0 +1,51 @@
+{
+    "enabled": true,
+    "features": {
+        "winResponses": {
+            "enabled": true,
+            "delay": {
+                "min": 2000,
+                "max": 5000
+            },
+            "templates": {
+                "pt": [
+                    "Muito obrigado {streamer}!",
+                    "Valeu {streamer}! {prize}",
+                    "Opa, ganhei! Obrigado {streamer}"
+                ],
+                "en": [
+                    "Thank you so much {streamer}!",
+                    "Thanks {streamer}! {prize}",
+                    "Yay, I won! Thanks {streamer}"
+                ]
+            }
+        },
+        "whisperResponses": {
+            "enabled": true,
+            "delay": {
+                "min": 5000,
+                "max": 15000
+            },
+            "templates": {
+                "pt": [
+                    "Ok, recebi! Obrigado",
+                    "Beleza, muito obrigado!"
+                ],
+                "en": [
+                    "Got it! Thank you",
+                    "Alright, thanks!"
+                ]
+            }
+        }
+    },
+    "providers": {
+        "Smart Keywords": {
+            "required": false,
+            "hooks": ["detectLanguage"]
+        },
+        "Discord Notifier": {
+            "required": false,
+            "hooks": ["sendDiscordNotification"]
+        }
+    }
+} 

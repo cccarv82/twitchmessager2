@@ -30,8 +30,8 @@ class DiscordNotifierPlugin extends PluginBase {
      * Construtor do plugin
      * Aqui definimos as informações básicas que todo plugin deve ter
      */
-    constructor() {
-        super(); // Sempre chame o construtor da classe pai primeiro
+    constructor(manager) {
+        super(manager);
 
         // Propriedades obrigatórias
         this.name = 'Discord Notifier';          // Nome único do plugin
@@ -52,54 +52,58 @@ class DiscordNotifierPlugin extends PluginBase {
      * this.config contém as configurações do config.json
      */
     async onLoad() {
-        // Verifica se temos a URL do webhook nas configurações
+        if (!this.silent) {
+            console.log(chalk.cyan(`Inicializando ${this.name}...`));
+        }
+
         if (this.config.webhookUrl) {
             try {
                 this.webhook = new WebhookClient({ url: this.config.webhookUrl });
                 
-                // Só mostra mensagens se não estiver em modo silencioso
+                // Registra hooks disponíveis
+                this.registerHook('sendDiscordMessage', this.sendMessage.bind(this));
+                this.registerHook('sendDiscordEmbed', this.sendEmbed.bind(this));
+                this.registerHook('sendDiscordNotification', this.sendNotification.bind(this));
+
                 if (!this.silent) {
-                    console.log(chalk.cyan(`Inicializando plugin ${this.name}...`));
                     console.log(chalk.green('✓ Webhook do Discord configurado'));
-                }
-
-                // Notifica carregamento se configurado e não estiver em modo silencioso
-                if (this.config.features?.lifecycleEvents?.enabled && 
-                    this.config.features.lifecycleEvents.notifyOnLoad &&
-                    !this.silent) {
-                    
-                    const notification = this.config.formatting?.useEmbed ? {
-                        embeds: [{
-                            title: '🔌 Plugin Carregado',
-                            description: [
-                                `Nome: ${this.name}`,
-                                `Versão: ${this.version}`,
-                                `Descrição: ${this.description}`
-                            ].join('\n'),
-                            color: parseInt((this.config.formatting.color || '#FF0000').replace('#', ''), 16),
-                            timestamp: this.config.formatting.includeTimestamp ? new Date() : null
-                        }],
-                        username: 'Twitch Giveaway Monitor'
-                    } : {
-                        content: [
-                            '🔌 **Plugin Carregado**',
-                            `Nome: ${this.name}`,
-                            `Versão: ${this.version}`,
-                            `Descrição: ${this.description}`
-                        ].join('\n'),
-                        username: 'Twitch Giveaway Monitor'
-                    };
-
-                    await this.webhook.send(notification);
                 }
             } catch (error) {
                 throw new Error(`Falha ao inicializar webhook: ${error.message}`);
             }
-        } else {
-            if (!this.silent) {
-                console.warn(chalk.yellow('Discord Notifier: webhookUrl não configurada'));
-            }
         }
+    }
+
+    async sendMessage(content, options = {}) {
+        if (!this.webhook) return null;
+        return this.webhook.send({
+            content,
+            username: options.username || 'Twitch Giveaway Monitor',
+            ...options
+        });
+    }
+
+    async sendEmbed(embed, options = {}) {
+        if (!this.webhook) return null;
+        return this.webhook.send({
+            embeds: [embed],
+            username: options.username || 'Twitch Giveaway Monitor',
+            ...options
+        });
+    }
+
+    async sendNotification(title, description, options = {}) {
+        if (!this.webhook) return null;
+        return this.webhook.send({
+            embeds: [{
+                title,
+                description,
+                color: parseInt((this.config.formatting?.color || '#FF0000').replace('#', ''), 16),
+                timestamp: this.config.formatting?.includeTimestamp ? new Date() : null,
+                ...options
+            }],
+            username: options.username || 'Twitch Giveaway Monitor'
+        });
     }
 
     /**
@@ -281,7 +285,7 @@ class DiscordNotifierPlugin extends PluginBase {
         try {
             const notification = this.config.formatting?.useEmbed ? {
                 embeds: [{
-                    title: '���� Novo Canal Adicionado',
+                    title: ' Novo Canal Adicionado',
                     description: `Entrou no canal: ${channel}`,
                     color: parseInt((this.config.formatting.color || '#FF0000').replace('#', ''), 16),
                     timestamp: this.config.formatting.includeTimestamp ? new Date() : null

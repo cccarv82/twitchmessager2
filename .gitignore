@@ -8,3 +8,13 @@ log/
 contas*
 whispers.json
 features.txt
+# Plugins data
+plugins/*/data/*
+!plugins/*/data/.gitkeep
+plugins/*/data/backups/*
+!plugins/*/data/backups/.gitkeep
+
+# Arquivos de log específicos dos plugins
+plugins/*/data/*.log
+plugins/*/data/*.json
+plugins/*/data/*.bak

@@ -4,8 +4,8 @@ const path = require('path');
 const chalk = require('chalk');
 
 class BlacklistPlugin extends PluginBase {
-    constructor() {
-        super();
+    constructor(manager) {
+        super(manager);
         this.name = 'Blacklist';
         this.description = 'Sistema de blacklist para palavras e canais';
         this.version = '1.0.0';
@@ -32,10 +32,20 @@ class BlacklistPlugin extends PluginBase {
         // Carrega as blacklists
         await this.loadBlacklists();
 
+        // Verifica providers usando o manager ao invés de global
+        this.hasSmartKeywords = this.manager.plugins.has('Smart Keywords');
+        this.hasDiscordNotifier = this.manager.plugins.has('Discord Notifier');
+
         if (!this.silent) {
             console.log(chalk.green(`✓ ${this.name} inicializado com sucesso`));
             console.log(chalk.gray(`   Palavras bloqueadas: ${this.blacklistedWords.size}`));
             console.log(chalk.gray(`   Canais bloqueados: ${this.blacklistedChannels.size}`));
+            if (this.hasSmartKeywords) {
+                console.log(chalk.gray(`   ✓ Usando Smart Keywords para análise avançada`));
+            }
+            if (this.hasDiscordNotifier) {
+                console.log(chalk.gray(`   ✓ Usando Discord para notificações`));
+            }
         }
 
         // Configura backup automático
@@ -98,6 +108,17 @@ class BlacklistPlugin extends PluginBase {
         const logMessage = `[${timestamp}] ${type}: ${value}${reason ? ` (${reason})` : ''}\n`;
         
         await fs.appendFile(this.logFile, logMessage);
+
+        // Se tiver Discord e notifyOnBlock ativado, notifica
+        if (this.hasDiscordNotifier && this.config.features.reporting.notifyOnBlock) {
+            try {
+                await this.useHook('sendDiscordMessage', 
+                    `🚫 **Blacklist**: ${type}\n${value}${reason ? `\n${reason}` : ''}`
+                );
+            } catch (error) {
+                console.error('Erro ao enviar notificação para Discord:', error);
+            }
+        }
     }
 
     // Métodos públicos para gerenciar blacklists
@@ -155,15 +176,34 @@ class BlacklistPlugin extends PluginBase {
 
     // Eventos do sistema
     async onMessage(channel, message) {
-        if (!this.config.features.wordBlacklist.enabled) return;
+        if (!this.config.features.wordBlacklist.enabled) return false;
 
+        // Primeiro verifica blacklist simples
         const words = message.split(/\s+/);
         for (const word of words) {
             if (this.isWordBlacklisted(word)) {
                 await this.logDetection('Palavra detectada', word, `em ${channel}`);
-                return true; // Indica que a mensagem contém palavra bloqueada
+                return true;
             }
         }
+
+        // Se tiver Smart Keywords, faz análise avançada
+        if (this.hasSmartKeywords) {
+            try {
+                const [{ result }] = await this.useHook('analyzePattern', message, {
+                    checkEntropy: true,
+                    checkLanguage: true
+                });
+
+                if (result && !result.isValid) {
+                    await this.logDetection('Mensagem suspeita', message, `em ${channel} (${result.reason})`);
+                    return true;
+                }
+            } catch (error) {
+                console.error('Erro ao usar Smart Keywords:', error);
+            }
+        }
+
         return false;
     }
 

@@ -103,3 +103,47 @@ Pull requests são bem-vindos. Para mudanças maiores, abra uma issue primeiro p
 ## Licença
 
 [MIT](https://choosealicense.com/licenses/mit/)
+
+## Plugins
+
+O sistema suporta plugins para estender suas funcionalidades.
+
+### Plugins Oficiais
+
+- **Discord Notifier**: Integração com Discord para notificações
+  - Notificações de giveaways detectados
+  - Notificações de vitórias
+  - Notificações de whispers
+  - Logs de erros
+
+- **Smart Keywords**: Detecção inteligente de padrões
+  - Aprendizado automático
+  - Suporte a múltiplos idiomas
+  - Análise de contexto
+  - Redução de falsos positivos
+
+- **Blacklist**: Sistema de blacklist
+  - Bloqueio de palavras
+  - Bloqueio de canais
+  - Integração com Smart Keywords
+  - Logs de detecções
+
+- **Auto Responder**: Respostas automáticas
+  - Respostas a vitórias
+  - Respostas a whispers
+  - Rate limiting
+  - Suporte a múltiplos idiomas
+
+### Instalação de Plugins
+
+1. Instale as dependências:
+```bash
+npm run setup-plugins
+```
+
+2. Configure cada plugin em seu respectivo `config.json`
+3. Reinicie o programa
+
+### Desenvolvimento de Plugins
+
+Veja a documentação em `src/plugins/README.md` para criar seus próprios plugins.
