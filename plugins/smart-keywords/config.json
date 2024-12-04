@@ -1,0 +1,37 @@
+{
+    "enabled": true,
+    "features": {
+        "patternLearning": {
+            "enabled": true,
+            "minOccurrences": 3,
+            "confidenceThreshold": 0.7,
+            "maxPatternLength": 50,
+            "updateInterval": 3600000
+        },
+        "languageDetection": {
+            "enabled": true,
+            "supportedLanguages": ["en", "pt", "es"],
+            "minimumConfidence": 0.8
+        },
+        "falsePositiveReduction": {
+            "enabled": true,
+            "blacklistedPatterns": [
+                "fake giveaway",
+                "scam",
+                "virus"
+            ],
+            "minimumEntropy": 0.5
+        },
+        "autoUpdate": {
+            "enabled": true,
+            "updateInterval": 86400000,
+            "backupOldPatterns": true
+        }
+    },
+    "reporting": {
+        "enabled": true,
+        "logLevel": "info",
+        "saveStats": true,
+        "notifyNewPatterns": true
+    }
+} 
