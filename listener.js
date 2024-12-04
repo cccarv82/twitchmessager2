@@ -13,8 +13,9 @@ const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
 const participationHistory = new Map(); // Canal -> Map<conta, Set<comando>>
 
 // Lê configurações do arquivo config.ini
-function getConfig() {
-  const config = ini.parse(fs.readFileSync("./config.ini", "utf-8"));
+async function getConfig() {
+  const configFile = await fs.readFile("./config.ini", "utf-8");
+  const config = ini.parse(configFile);
   return {
     clientId: config.CLIENT.ID,
     clientSecret: config.CLIENT.SECRET,
@@ -35,12 +36,23 @@ function getConfig() {
   };
 }
 
-// Obtém configuração inicial
-const config = getConfig();
-const patternConfig = config.patternDetection;
-const WINNER_PATTERNS = config.winnerPatterns;
-const WHISPER_PATTERNS = config.whisperPatterns;
-const PARTICIPATION_PATTERNS = config.participationPatterns;
+// Como getConfig agora é async, precisamos inicializar as configurações em uma função async
+let config, patternConfig, WINNER_PATTERNS, WHISPER_PATTERNS, PARTICIPATION_PATTERNS;
+let cleanupInterval; // Adiciona variável para armazenar o interval
+
+async function initializeConfig() {
+    config = await getConfig();
+    patternConfig = config.patternDetection;
+    WINNER_PATTERNS = config.winnerPatterns;
+    WHISPER_PATTERNS = config.whisperPatterns;
+    PARTICIPATION_PATTERNS = config.participationPatterns;
+
+    // Configura limpeza periódica após ter as configurações
+    if (cleanupInterval) {
+        clearInterval(cleanupInterval); // Limpa interval anterior se existir
+    }
+    cleanupInterval = setInterval(cleanupPatterns, patternConfig.cleanupInterval);
+}
 
 function formatMessage(channel, username, message, matchedKeyword) {
   const timestamp = new Date().toLocaleTimeString();
@@ -126,11 +138,8 @@ function cleanupPatterns() {
   }
 }
 
-// Configura limpeza periódica
-setInterval(cleanupPatterns, patternConfig.cleanupInterval);
-
 // Adicione após as outras funções de log
-function logWin(channel, username, message) {
+async function logWin(channel, username, message) {
     const timestamp = new Date().toISOString();
     const logEntry = {
         timestamp,
@@ -143,15 +152,15 @@ function logWin(channel, username, message) {
     const logFile = 'wins.json';
     let wins = [];
     
-    // Lê o arquivo existente ou cria um novo
     try {
-        wins = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+        const content = await fs.readFile(logFile, 'utf8');
+        wins = JSON.parse(content);
     } catch (error) {
         // Arquivo não existe, começará com array vazio
     }
 
     wins.push(logEntry);
-    fs.writeFileSync(logFile, JSON.stringify(wins, null, 2));
+    await fs.writeFile(logFile, JSON.stringify(wins, null, 2));
 }
 
 // Adicione esta função para celebrar a vitória
@@ -203,7 +212,7 @@ function checkWinnerOrMention(message, usernames, messageUser, channel, currentB
                 return {
                     type: 'winner',
                     message: chalk.green.bold(
-                        `\n🎉 🎉 🎉 🎉 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
+                        `\n🎉 🎉  🎉 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
                         `Mensagem original: ${messageUser}: ${message}\n` +
                         `Vitória registrada em wins.json\n` +
                         `Celebração programada em 15 segundos...\n`
@@ -313,7 +322,8 @@ const temporaryBots = new Map();
 
 async function participateWithAllAccounts(currentBot, channel, command, isListener) {
     try {
-        const contas = JSON.parse(fs.readFileSync('contas.json', 'utf8'));
+        const contasData = await fs.readFile('contas.json', 'utf8');
+        const contas = JSON.parse(contasData);
         
         // Participa com cada conta
         for (const contaParticipante of contas) {
@@ -330,7 +340,7 @@ async function participateWithAllAccounts(currentBot, channel, command, isListen
 }
 
 // Adicione após as outras funções
-function logWhisper(conta, from, message) {
+async function logWhisper(conta, from, message) {
     const timestamp = new Date().toISOString();
     const logEntry = {
         timestamp,
@@ -342,15 +352,15 @@ function logWhisper(conta, from, message) {
     const logFile = 'whispers.json';
     let whispers = [];
     
-    // Lê o arquivo existente ou cria um novo
     try {
-        whispers = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+        const content = await fs.readFile(logFile, 'utf8');
+        whispers = JSON.parse(content);
     } catch (error) {
         // Arquivo não existe, começará com array vazio
     }
 
     whispers.push(logEntry);
-    fs.writeFileSync(logFile, JSON.stringify(whispers, null, 2));
+    await fs.writeFile(logFile, JSON.stringify(whispers, null, 2));
 }
 
 function formatWhisperMessage(from, message, conta) {
@@ -366,202 +376,220 @@ function formatWhisperMessage(from, message, conta) {
 
 // Modifique a função connectBot
 async function connectBot(conta, canais) {
-    // Remove todos os console.log exceto erros críticos
-    let token = conta.token;
-    if (!token.startsWith('oauth:')) {
-        token = `oauth:${token}`;
-    }
-    
     try {
-        const response = await fetch('https://id.twitch.tv/oauth2/validate', {
-            headers: {
-                'Authorization': `OAuth ${token.replace('oauth:', '')}`
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error('Token inválido');
+        // Remove todos os console.log exceto erros críticos
+        let token = conta.token;
+        if (!token.startsWith('oauth:')) {
+            token = `oauth:${token}`;
         }
         
-        await response.json();
-    } catch (error) {
-        throw new Error(`Token inválido para ${conta.nome}`);
-    }
-    
-    const bot = new tmi.Client({
-        options: { 
-            debug: false,
-            skipMembership: true,
-            skipUpdatingEmotesets: true
-        },
-        connection: {
-            secure: true,
-            reconnect: true,
-        },
-        identity: {
-            username: conta.nome,
-            password: token,
-        },
-        channels: conta.isListener ? canais : [],
-        logger: {
-            info: () => {},
-            warn: () => {},
-            error: (message) => {
-                if (conta.isListener && !message.includes('No response from Twitch')) {
-                    console.error(chalk.red(message));
+        // Valida o token antes de tentar conectar
+        try {
+            const response = await fetch('https://id.twitch.tv/oauth2/validate', {
+                headers: {
+                    'Authorization': `OAuth ${token.replace('oauth:', '')}`
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error('Token inválido');
+            }
+            
+            await response.json();
+        } catch (error) {
+            throw new Error(`Token inválido para ${conta.nome}`);
+        }
+        
+        // Configuração do bot
+        const bot = new tmi.Client({
+            options: { 
+                debug: false,
+                skipMembership: true,
+                skipUpdatingEmotesets: true
+            },
+            connection: {
+                secure: true,
+                reconnect: true,
+            },
+            identity: {
+                username: conta.nome,
+                password: token,
+            },
+            channels: conta.isListener ? canais : [],
+            logger: {
+                info: () => {},
+                warn: () => {},
+                error: (message) => {
+                    if (conta.isListener && !message.includes('No response from Twitch')) {
+                        console.error(chalk.red(message));
+                    }
                 }
             }
-        }
-    });
+        });
 
-    try {
+        // Tenta conectar
         await bot.connect();
+
+        // Log de sucesso
         if (conta.isListener) {
             console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
         } else {
             console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} pronto para participações`));
         }
-        
-        const config = getConfig();
-        const palavrasChave = config.palavrasChave.map(p => p.toLowerCase());
-        
-        // Lê todas as contas para verificar menções
-        const contas = JSON.parse(fs.readFileSync('contas.json', 'utf8'));
-        const usernames = contas.map(c => c.nome);
-        
-        // Configurar eventos do bot
-        bot.on("message", async (channel, tags, message, self) => {
-            if (self) return;
-            
-            const messageLower = message.toLowerCase();
-            
-            // Detecta padrões de mensagens
-            const pattern = detectMessagePattern(channel, messageLower);
-            if (pattern) {
-                // Só mostra mensagem de detecção se for listener
-                if (conta.isListener) {
-                    console.log(
-                        chalk.magenta(
-                            `\n🔍 🔍 🔍 🔍 🔍 [${new Date().toLocaleTimeString()}] ${pattern.channel} | ` +
-                            `Possível ${pattern.isParticipationCommand ? 'comando de participação' : 'giveaway'} detectado!\n` +
-                            `Mensagem "${pattern.message}" repetida ${pattern.count} vezes ` +
-                            `nos últimos ${pattern.timeWindow} segundos\n`
-                        )
-                    );
-                }
 
-                // Se parece ser um comando de participação
-                if (pattern.isParticipationCommand) {
-                    const command = pattern.message.trim();
-                    if (conta.isListener) {
-                        // Se for o listener, coordena a participação de todos
-                        const channelName = channel.replace('#', '');
-                        for (const participantBot of global.activeBots) {
-                            try {
-                                // Se não for o listener, entra no canal, participa e depois sai
-                                const participantConta = contas.find(c => c.nome === participantBot.getUsername());
-                                if (!participantConta.isListener) {
-                                    // Primeiro entra no canal
-                                    if (!participantBot.getChannels().includes(channel)) {
-                                        await participantBot.join(channel);
-                                        // Aguarda um momento para garantir a conexão
-                                        await new Promise(resolve => setTimeout(resolve, 1000));
-                                    }
-                                    // Depois participa
-                                    await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
-                                    
-                                    // Sai do canal após participar
-                                    setTimeout(async () => {
-                                        try {
-                                            await participantBot.part(channel);
-                                        } catch (error) {
-                                            console.error(`Erro ao sair do canal ${channel}:`, error);
-                                        }
-                                    }, 5000);
-                                } else {
-                                    // Se for o listener, apenas participa
-                                    await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
+        // Configura eventos do bot
+        await setupBotEvents(bot, conta, canais);
+
+        return bot;
+    } catch (error) {
+        console.error(chalk.red(`✖ Falha ao configurar bot para conta ${conta.nome}: ${error.message}`));
+        return null;
+    }
+}
+
+// Nova função para configurar eventos do bot
+async function setupBotEvents(bot, conta, canais) {
+    // Lê configurações necessárias
+    const configData = await fs.readFile("./config.ini", "utf-8");
+    const config = ini.parse(configData);
+    const palavrasChave = config.KEYWORDS.PARTICIPATION.split(',');
+    
+    // Lê contas para verificar menções
+    const contasData = await fs.readFile('contas.json', 'utf8');
+    const contas = JSON.parse(contasData);
+    const usernames = contas.map(c => c.nome);
+
+    // Configura eventos
+    bot.on("message", async (channel, tags, message, self) => {
+        if (self) return;
+        
+        const messageLower = message.toLowerCase();
+        
+        // Detecta padrões de mensagens
+        const pattern = detectMessagePattern(channel, messageLower);
+        if (pattern) {
+            // Só mostra mensagem de detecção se for listener
+            if (conta.isListener) {
+                console.log(
+                    chalk.magenta(
+                        `\n🔍 🔍 🔍 🔍 🔍 [${new Date().toLocaleTimeString()}] ${pattern.channel} | ` +
+                        `Possível ${pattern.isParticipationCommand ? 'comando de participação' : 'giveaway'} detectado!\n` +
+                        `Mensagem "${pattern.message}" repetida ${pattern.count} vezes ` +
+                        `nos ltimos ${pattern.timeWindow} segundos\n`
+                    )
+                );
+            }
+
+            // Se parece ser um comando de participação
+            if (pattern.isParticipationCommand) {
+                const command = pattern.message.trim();
+                if (conta.isListener) {
+                    // Se for o listener, coordena a participação de todos
+                    const channelName = channel.replace('#', '');
+                    for (const participantBot of global.activeBots) {
+                        try {
+                            // Se não for o listener, entra no canal, participa e depois sai
+                            const participantConta = contas.find(c => c.nome === participantBot.getUsername());
+                            if (!participantConta.isListener) {
+                                // Primeiro entra no canal
+                                if (!participantBot.getChannels().includes(channel)) {
+                                    await participantBot.join(channel);
+                                    // Aguarda um momento para garantir a conexão
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
                                 }
-                            } catch (error) {
-                                console.error(`Erro ao participar com ${participantBot.getUsername()}:`, error);
+                                // Depois participa
+                                await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
+                                
+                                // Sai do canal após participar
+                                setTimeout(async () => {
+                                    try {
+                                        await participantBot.part(channel);
+                                    } catch (error) {
+                                        console.error(`Erro ao sair do canal ${channel}:`, error);
+                                    }
+                                }, 5000);
+                            } else {
+                                // Se for o listener, apenas participa
+                                await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
                             }
+                        } catch (error) {
+                            console.error(`Erro ao participar com ${participantBot.getUsername()}:`, error);
                         }
                     }
                 }
             }
-
-            // Verifica se é uma mensagem que indica como participar
-            const participationCommand = detectParticipationCommand(message);
-            if (participationCommand) {
-                // Só mostra mensagem no console se for listener
-                if (conta.isListener) {
-                    const channelName = channel.replace('#', '');
-                    const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
-                    console.log(chalk.magenta(
-                        `🎯 🎯 🎯 🎯 🎯 [${new Date().toLocaleTimeString()}] ${channelLink} | ` +
-                        `Comando de participação detectado: ${chalk.green(participationCommand)}\n`
-                    ));
-                }
-
-                await participateWithAllAccounts(bot, channel, participationCommand, conta.isListener);
-            }
-
-            // Verifica se alguém ganhou ou foi mencionado
-            const winnerOrMention = checkWinnerOrMention(message, usernames, tags.username, channel, bot);
-            if (winnerOrMention) {
-                console.log(winnerOrMention.message);
-            }
-        });
-
-        // Adiciona evento de whisper
-        bot.on("whisper", (from, userstate, message, self) => {
-            // Adiciona log de debug
-            console.log(`Debug whisper - De: ${from}, Para: ${conta.nome}, Self: ${self}, Mensagem: ${message}`);
-            
-            if (self) {
-                console.log(`Debug: Mensagem ignorada por ser self (${conta.nome})`);
-                return;
-            }
-
-            // Salva todos os whispers no arquivo de log
-            logWhisper(conta, from, message);
-
-            // Mostra todos os whispers no console
-            console.log(formatWhisperMessage(from, message, conta));
-            
-            // Alerta especial para whispers
-            console.log(chalk.bgYellow.black(
-                `\n⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ATENÇÃO! Mensagem privada recebida!\n`
-            ));
-
-            // Se contiver palavras-chave importantes, destaca ainda mais
-            if (WHISPER_PATTERNS.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()))) {
-                console.log(chalk.bgRed.white(
-                    `\n🎉 🎉 🎉 POSSÍVEL VITÓRIA DETECTADA! 🎉 🎉 🎉\n` +
-                    `Verifique a mensagem acima!\n`
-                ));
-            }
-        });
-
-        // Também podemos adicionar um evento específico para erros de whisper
-        bot.on("whisper_error", (error) => {
-            console.error(`Erro de whisper para ${conta.nome}:`, error);
-        });
-
-        // Só mostra mensagens de conexão/desconexão se for a conta Listener
-        if (conta.isListener) {
-            bot.on("connected", (addr, port) => {
-                console.log(chalk.green(`Bot ${conta.nome} reconectado a ${addr}:${port}`));
-            });
-
-            bot.on("disconnected", (reason) => {
-                console.log(chalk.red(`Bot ${conta.nome} desconectado: ${reason}`));
-            });
         }
 
-        return bot;
-    } catch (error) {
-        throw new Error(`Falha ao conectar ${conta.nome}`);
+        // Verifica se é uma mensagem que indica como participar
+        const participationCommand = detectParticipationCommand(message);
+        if (participationCommand) {
+            // Só mostra mensagem no console se for listener
+            if (conta.isListener) {
+                const channelName = channel.replace('#', '');
+                const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
+                console.log(chalk.magenta(
+                    `🎯 🎯 🎯 🎯 🎯 [${new Date().toLocaleTimeString()}] ${channelLink} | ` +
+                    `Comando de participação detectado: ${chalk.green(participationCommand)}\n`
+                ));
+            }
+
+            await participateWithAllAccounts(bot, channel, participationCommand, conta.isListener);
+        }
+
+        // Verifica se alguém ganhou ou foi mencionado
+        const winnerOrMention = checkWinnerOrMention(message, usernames, tags.username, channel, bot);
+        if (winnerOrMention) {
+            console.log(winnerOrMention.message);
+        }
+    });
+
+    // Adiciona evento de whisper
+    bot.on("whisper", async (from, userstate, message, self) => {
+        // Adiciona log de debug
+        console.log(`Debug whisper - De: ${from}, Para: ${conta.nome}, Self: ${self}, Mensagem: ${message}`);
+        
+        if (self) {
+            console.log(`Debug: Mensagem ignorada por ser self (${conta.nome})`);
+            return;
+        }
+
+        // Salva todos os whispers no arquivo de log
+        await logWhisper(conta, from, message);
+
+        // Mostra todos os whispers no console
+        console.log(formatWhisperMessage(from, message, conta));
+        
+        // Alerta especial para whispers
+        console.log(chalk.bgYellow.black(
+            `\n⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ATENÇÃO! Mensagem privada recebida!\n`
+        ));
+
+        // Se contiver palavras-chave importantes, destaca ainda mais
+        if (WHISPER_PATTERNS.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()))) {
+            console.log(chalk.bgRed.white(
+                `\n🎉 🎉 🎉 POSSÍVEL VITÓRIA DETECTADA! 🎉 🎉 🎉\n` +
+                `Verifique a mensagem acima!\n`
+            ));
+        }
+
+        // Emite evento para plugins (apenas aqui)
+        await global.pluginManager.emit('onWhisperReceived', from, message);
+    });
+
+    // Também podemos adicionar um evento específico para erros de whisper
+    bot.on("whisper_error", (error) => {
+        console.error(`Erro de whisper para ${conta.nome}:`, error);
+    });
+
+    // Só mostra mensagens de conexão/desconexão se for a conta Listener
+    if (conta.isListener) {
+        bot.on("connected", (addr, port) => {
+            console.log(chalk.green(`Bot ${conta.nome} reconectado a ${addr}:${port}`));
+        });
+
+        bot.on("disconnected", (reason) => {
+            console.log(chalk.red(`Bot ${conta.nome} desconectado: ${reason}`));
+        });
     }
 }
 
@@ -573,12 +601,26 @@ function clearScreen() {
 // Inicializa o gerenciador de plugins globalmente
 global.pluginManager = new PluginManager();
 
-// Modifique a função main
+// Modifique a função main para inicializar as configurações
 async function main() {
     try {
+        await initializeConfig(); // Inicializa as configurações antes de continuar
         clearScreen();
         console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
+
+        // Carrega os plugins
+        console.log(chalk.cyan('Carregando plugins...'));
+        await global.pluginManager.loadPlugins();
         
+        if (global.pluginManager.plugins.size === 0) {
+            console.log(chalk.yellow('Nenhum plugin carregado'));
+        } else {
+            console.log(chalk.green(`✓ ${global.pluginManager.plugins.size} plugins carregados`));
+            for (const [name, plugin] of global.pluginManager.plugins) {
+                console.log(chalk.green(`  - ${name} v${plugin.version}`));
+            }
+        }
+
         // Primeiro passo: Renovar tokens
         console.log(chalk.cyan('Renovando tokens...'));
         try {
@@ -597,7 +639,9 @@ async function main() {
             console.log(chalk.green('✓ Tokens renovados com sucesso!'));
 
             // Verifica se os tokens foram realmente renovados
-            const contas = JSON.parse(fs.readFileSync('contas.json', 'utf8'));
+            const contasData = await fs.readFile('contas.json', 'utf8');
+            const contas = JSON.parse(contasData);
+            
             for (const conta of contas) {
                 try {
                     const response = await fetch('https://id.twitch.tv/oauth2/validate', {
@@ -630,8 +674,10 @@ async function main() {
             process.exit(1);
         }
 
-        const canais = JSON.parse(fs.readFileSync("canais.json", "utf8"));
-        const contas = JSON.parse(fs.readFileSync("contas.json", "utf8"));
+        const canaisData = await fs.readFile("canais.json", "utf8");
+        const canais = JSON.parse(canaisData);
+        const contasData = await fs.readFile("contas.json", "utf8");
+        const contas = JSON.parse(contasData);
         
         const listenerConta = contas.find(c => c.isListener);
         if (!listenerConta) {
@@ -648,12 +694,14 @@ async function main() {
 
         const bots = [];
         for (const conta of contas) {
-            try {
-                const bot = await connectBot(conta, canais);
+            const bot = await connectBot(conta, canais);
+            if (bot) {
                 bots.push(bot);
-            } catch (error) {
-                console.error(chalk.red(`✖ Falha ao configurar bot para conta ${conta.nome}`));
             }
+        }
+
+        if (bots.length === 0) {
+            throw new Error('Nenhum bot pôde ser iniciado');
         }
 
         global.activeBots = bots;
@@ -662,14 +710,13 @@ async function main() {
         console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
         console.log(chalk.green('✓ Monitoramento iniciado com sucesso!'));
 
-        // Adiciona horário de início
+        // Adiciona horário de início e informações dos canais
         const startTime = new Date();
+        const nextUpdate = new Date(startTime.getTime() + 30 * 60000); // Define nextUpdate aqui
+
         console.log(chalk.cyan(`Iniciado em: ${startTime.toLocaleTimeString()}`));
-
-        // Calcula e mostra próxima atualização
-        const nextUpdate = new Date(startTime.getTime() + 30 * 60000);
-        console.log(chalk.cyan(`Próxima atualização de canais: ${nextUpdate.toLocaleTimeString()}`));
-
+        console.log(chalk.cyan(`Monitorando ${chalk.yellow(canais.length)} canais`));
+        console.log(chalk.cyan(`Próxima atualização: ${nextUpdate.toLocaleTimeString()}`));
         console.log(chalk.yellow('\nPressione Ctrl+C para encerrar\n'));
 
         // Mantém o processo rodando e desconecta adequadamente
@@ -699,7 +746,8 @@ setInterval(() => {
 // Função para atualizar canais
 async function updateChannels(isListener) {
     try {
-        const config = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
+        const configData = await fs.readFile('./config.ini', 'utf-8');
+        const config = ini.parse(configData);
         const gameName = config.GAME.NAME;
 
         if (!gameName) {

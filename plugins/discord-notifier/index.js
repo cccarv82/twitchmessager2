@@ -19,6 +19,7 @@ const PluginBase = require('../../src/plugins/PluginBase');
 const { Client, GatewayIntentBits, WebhookClient } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const chalk = require('chalk');
 
 /**
  * Classe principal do plugin
@@ -51,10 +52,12 @@ class DiscordNotifierPlugin extends PluginBase {
      * this.config contém as configurações do config.json
      */
     async onLoad() {
+        console.log(chalk.cyan(`Inicializando plugin ${this.name}...`));
         // Verifica se temos a URL do webhook nas configurações
         if (this.config.webhookUrl) {
             try {
                 this.webhook = new WebhookClient({ url: this.config.webhookUrl });
+                console.log(chalk.green('✓ Webhook do Discord configurado'));
                 
                 // Notifica carregamento se configurado
                 if (this.config.features?.lifecycleEvents?.enabled && 
@@ -88,7 +91,7 @@ class DiscordNotifierPlugin extends PluginBase {
                 throw new Error(`Falha ao inicializar webhook: ${error.message}`);
             }
         } else {
-            console.warn('Discord Notifier: webhookUrl não configurada');
+            console.warn(chalk.yellow('Discord Notifier: webhookUrl não configurada'));
         }
     }
 
@@ -212,14 +215,21 @@ class DiscordNotifierPlugin extends PluginBase {
      * @param {string} message - Conteúdo do whisper
      */
     async onWhisperReceived(from, message) {
-        if (!this.webhook || !this.config.features?.whisperNotification?.enabled) return;
+        console.log(chalk.gray(`Discord Notifier: Processando whisper de ${from}`));
+        if (!this.webhook || !this.config.features?.whisperNotification?.enabled) {
+            console.log(chalk.gray('Discord Notifier: Notificação de whisper desativada ou webhook não configurado'));
+            return;
+        }
 
         // Se configurado para apenas keywords, verifica se a mensagem contém alguma
         if (this.config.features.whisperNotification.onlyKeywords) {
             const hasKeyword = WHISPER_PATTERNS.some(pattern => 
                 message.toLowerCase().includes(pattern.toLowerCase())
             );
-            if (!hasKeyword) return;
+            if (!hasKeyword) {
+                console.log(chalk.gray('Discord Notifier: Whisper ignorado (não contém keywords)'));
+                return;
+            }
         }
 
         try {
@@ -244,12 +254,9 @@ class DiscordNotifierPlugin extends PluginBase {
             };
 
             await this.webhook.send(notification);
+            console.log(chalk.green('✓ Notificação enviada para o Discord'));
         } catch (error) {
-            if (this.config.features?.errorReporting?.enabled) {
-                console.error('Discord Notifier: Erro ao enviar notificação de whisper:', 
-                    this.config.features.errorReporting.detailLevel === 'full' ? error : error.message);
-                this.emit('error', error);
-            }
+            console.error(chalk.red('Discord Notifier: Erro ao enviar notificação:', error));
         }
     }
 

@@ -11,6 +11,7 @@ class PluginManager {
 
     async loadPlugins() {
         try {
+            console.log(chalk.cyan('Carregando plugins...'));
             // Verifica se o diretório plugins existe
             try {
                 await fs.access(this.pluginsDir);
@@ -35,6 +36,8 @@ class PluginManager {
                     }
                 }
             }
+            
+            console.log(chalk.green(`✓ ${this.plugins.size} plugins carregados`));
         } catch (error) {
             console.error(chalk.red('Erro ao carregar plugins:', error));
         }
@@ -68,6 +71,7 @@ class PluginManager {
 
     // Método para emitir eventos para todos os plugins ativos
     async emit(event, ...args) {
+        console.log(chalk.gray(`Emitindo evento ${event} para ${this.plugins.size} plugins`));
         for (const [name, plugin] of this.plugins) {
             if (plugin.enabled && typeof plugin[event] === 'function') {
                 try {
