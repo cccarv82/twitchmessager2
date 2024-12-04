@@ -1,0 +1,14 @@
+{
+    "name": "smart-keywords",
+    "version": "1.0.0",
+    "description": "Plugin para detecção inteligente de padrões e idiomas",
+    "main": "index.js",
+    "author": {
+        "name": "Carlos Carvalho",
+        "email": "cccarv82@gmail.com"
+    },
+    "dependencies": {
+        "languagedetect": "^2.0.0",
+        "natural": "^6.5.0"
+    }
+} 

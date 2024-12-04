@@ -97,22 +97,8 @@ class PluginManager {
 
             await this.checkDependencies(silent);
 
-            // Lista plugins carregados com suas features
             if (!silent) {
-                for (const [name, plugin] of this.plugins) {
-                    const status = plugin.config?.enabled ? chalk.green('✓') : chalk.red('✗');
-                    console.log(`${status} ${chalk.cyan(name)} v${plugin.version}`);
-                    console.log(chalk.gray(`   ${plugin.description}`));
-                    
-                    if (plugin.config?.features) {
-                        console.log(chalk.gray('   Features:'));
-                        for (const [feature, config] of Object.entries(plugin.config.features)) {
-                            const featureStatus = config.enabled ? chalk.green('✓') : chalk.red('✗');
-                            console.log(`   ${featureStatus} ${feature}`);
-                        }
-                    }
-                    console.log(); // Linha em branco entre plugins
-                }
+                console.log(chalk.green(`✓ ${this.plugins.size} plugins carregados`));
             }
         } catch (error) {
             if (!silent) {
@@ -147,6 +133,9 @@ class PluginManager {
             let plugin;
             const Plugin = require(path.join(pluginPath, 'index.js'));
             plugin = new Plugin(this);
+
+            // Inicializa o plugin (incluindo package.json)
+            await plugin.init();
 
             // Verifica se já existe um plugin com este nome
             if (this.plugins.has(plugin.name)) {
@@ -193,6 +182,38 @@ class PluginManager {
                 }
             }
         }
+    }
+
+    async listPlugins() {
+        console.log(chalk.cyan('\n=== Plugins Instalados ===\n'));
+        
+        for (const [name, plugin] of this.plugins) {
+            // Debug
+            console.log('Debug - Plugin:', name);
+            console.log('Debug - Constructor package:', plugin.constructor.package);
+            console.log('Debug - Author:', plugin.constructor.package?.author);
+            
+            // Informações básicas
+            const version = plugin.version || '1.0.0';
+            const author = plugin.constructor.package?.author?.name || 'Unknown';
+            
+            console.log(chalk.green(`✓ ${name} v${version}`));
+            console.log(chalk.gray(`   Autor: ${author}`));
+            console.log(chalk.gray(`   ${plugin.description}`));
+
+            // Features do plugin
+            if (plugin.config?.features) {
+                console.log(chalk.gray('   Features:'));
+                for (const [feature, config] of Object.entries(plugin.config.features)) {
+                    const status = config.enabled ? '✓' : '✗';
+                    console.log(chalk.gray(`   ${status} ${feature}`));
+                }
+            }
+            console.log(''); // Linha em branco entre plugins
+        }
+
+        console.log(chalk.yellow('\nPressione Enter para voltar ao menu principal...'));
+        await new Promise(resolve => process.stdin.once('data', resolve));
     }
 }
 

@@ -1,46 +1,48 @@
 # Auto Responder Plugin
 
-Plugin para gerenciar respostas automáticas para diferentes eventos.
+Gerencia respostas automáticas para whispers e vitórias na Twitch.
 
-## Funcionalidades
-
-- 🏆 Respostas automáticas para vitórias
-- 💌 Respostas automáticas para whispers
-- 🌍 Suporte a múltiplos idiomas
-- ⏱️ Delays aleatórios
-- 📊 Logs de respostas
-
-## Integrações
-
-### Smart Keywords
-Se disponível, usa para:
+## Características
+- Respostas automáticas para whispers
+- Respostas automáticas para vitórias
 - Detecção automática de idioma
-- Seleção inteligente de respostas
-
-### Discord Notifier
-Se disponível, notifica sobre:
-- Respostas enviadas
-- Erros de envio
-- Estatísticas de uso
+- Suporte para Português, Inglês e Espanhol
+- Rate limiting para evitar spam
+- Integração com Discord para logs
 
 ## Configuração
-
 ```json
 {
+    "enabled": true,
     "features": {
+        "whisperResponses": {
+            "enabled": true,
+            "delay": {
+                "min": 1000,
+                "max": 3000
+            }
+        },
         "winResponses": {
             "enabled": true,
-            "templates": {
-                "pt": ["Obrigado {streamer}!"],
-                "en": ["Thanks {streamer}!"]
+            "delay": {
+                "min": 2000,
+                "max": 5000
             }
         }
     }
 }
 ```
 
-## Templates
+## Dependências
+- Smart Keywords (opcional): Para detecção de idioma
+- Discord Notifier (opcional): Para logs no Discord
 
-Variáveis disponíveis:
-- `{streamer}`: Nome do streamer
-- `{prize}`: Prêmio ganho (quando disponível) 
+## Uso
+O plugin funciona automaticamente após instalado e configurado. Ele irá:
+1. Responder whispers recebidos no idioma detectado
+2. Responder quando ganhar algum sorteio
+3. Enviar logs para o Discord (se configurado)
+
+## Rate Limiting
+- 1 resposta a cada 5 minutos por usuário
+- Delays aleatórios entre respostas

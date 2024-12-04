@@ -16,6 +16,11 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Aprendizado automático de comandos
 - Suporte a múltiplos idiomas
 - Sistema de logs e estatísticas por plugin
+- Auto Responder Plugin v1.0.0
+  - Respostas automáticas multilíngues
+  - Detecção de idioma
+  - Rate limiting
+  - Integração com Discord
 
 ### Modificado
 - Refatoração do sistema de detecção de padrões

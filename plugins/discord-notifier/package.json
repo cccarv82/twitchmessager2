@@ -1,0 +1,13 @@
+{
+    "name": "discord-notifier",
+    "version": "1.0.0",
+    "description": "Plugin de integração com Discord para notificações",
+    "main": "index.js",
+    "author": {
+        "name": "Carlos Carvalho",
+        "email": "cccarv82@gmail.com"
+    },
+    "dependencies": {
+        "discord.js": "^14.14.1"
+    }
+} 
