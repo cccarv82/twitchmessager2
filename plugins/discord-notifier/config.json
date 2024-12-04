@@ -1,5 +1,6 @@
 {
     "enabled": true,
+    "isProvider": true,
     "webhookUrl": "https://discord.com/api/webhooks/1313670011528810597/GVSVtiHlk5Xlvo3LfkqD0xWJL43w_b--fyJseZCCe-Qb8FlEpLN8GPb6Wbe52fRIu1uy",
     "features": {
         "giveawayDetection": {
@@ -38,5 +39,10 @@
         "color": "#FF0000",
         "includeTimestamp": true,
         "includePluginVersion": true
+    },
+    "providedHooks": {
+        "sendDiscordMessage": "Envia mensagem simples para o Discord",
+        "sendDiscordEmbed": "Envia embed para o Discord",
+        "sendDiscordNotification": "Envia notificação formatada para o Discord"
     }
 } 

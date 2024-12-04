@@ -1,26 +1,50 @@
 {
     "enabled": true,
+    "isProvider": true,
     "features": {
         "patternLearning": {
             "enabled": true,
             "minOccurrences": 3,
             "confidenceThreshold": 0.7,
             "maxPatternLength": 50,
-            "updateInterval": 3600000
+            "updateInterval": 3600000,
+            "timeWindow": 30000,
+            "commandLearning": {
+                "enabled": true,
+                "minOccurrences": 5,
+                "timeWindow": 60000,
+                "blacklistedCommands": [
+                    "ban", "timeout", "clear", "mod", "unmod", "raid",
+                    "host", "unhost", "mods", "vips", "slow", "followers",
+                    "subscribers", "emoteonly", "uniquechat", "followersoff"
+                ]
+            },
+            "contextAnalysis": {
+                "enabled": true,
+                "keywords": [
+                    "sorteio", "giveaway", "premio", "prize", "winner",
+                    "vencedor", "ganhar", "win", "sorteo", "regalo"
+                ],
+                "timeWindow": 60000
+            }
         },
         "languageDetection": {
             "enabled": true,
-            "supportedLanguages": ["en", "pt", "es"],
-            "minimumConfidence": 0.8
+            "supportedLanguages": ["en", "pt", "es", "unknown"],
+            "minimumConfidence": 0.6
         },
         "falsePositiveReduction": {
             "enabled": true,
-            "blacklistedPatterns": [
-                "fake giveaway",
-                "scam",
-                "virus"
-            ],
-            "minimumEntropy": 0.5
+            "minimumEntropy": 0.3,
+            "minMessageLength": 2,
+            "commandExceptions": {
+                "enabled": true,
+                "prefixes": ["!", ".", "$", "?"],
+                "commonCommands": [
+                    "join", "entrar", "sorteio", "giveaway",
+                    "participar", "enter", "sorteo"
+                ]
+            }
         },
         "autoUpdate": {
             "enabled": true,
@@ -28,10 +52,23 @@
             "backupOldPatterns": true
         }
     },
-    "reporting": {
+    "providedHooks": {
+        "detectLanguage": "Detecta o idioma de um texto",
+        "calculateEntropy": "Calcula a entropia de um texto",
+        "analyzePattern": "Analisa um padrão de mensagem",
+        "getKnownPatterns": "Retorna padrões conhecidos",
+        "getStats": "Retorna estatísticas detalhadas do plugin"
+    },
+    "rateLimiting": {
         "enabled": true,
-        "logLevel": "info",
-        "saveStats": true,
-        "notifyNewPatterns": true
+        "perChannel": {
+            "maxParticipations": 3,
+            "timeWindow": 3600000,
+            "cooldown": 300000
+        },
+        "global": {
+            "maxParticipations": 10,
+            "timeWindow": 3600000
+        }
     }
 } 

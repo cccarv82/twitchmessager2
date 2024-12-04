@@ -1,26 +1,27 @@
 # Blacklist Plugin
 
-Plugin para gerenciamento de blacklists de palavras e canais no Twitch Giveaway Monitor.
+Plugin para gerenciamento de blacklists de palavras e canais.
 
 ## Funcionalidades
 
 - 🚫 Bloqueio de palavras específicas
 - 🔒 Bloqueio de canais
 - 📝 Log de detecções
-- 💾 Backup automático
-- 🔄 Sincronização automática
+- 💾 Sincronização automática
 
-## Instalação
+## Integrações
 
-1. Coloque os arquivos na pasta `plugins/blacklist/`
-2. Configure o `config.json` conforme necessário
-3. Reinicie o monitor
+### Smart Keywords
+Se disponível, usa análise avançada para:
+- Detecção de idioma
+- Cálculo de entropia
+- Análise de padrões suspeitos
 
-## Arquivos de Blacklist
-
-- `data/palavras-bl.json`: Lista de palavras bloqueadas
-- `data/canais-bl.json`: Lista de canais bloqueados
-- `data/blacklist.log`: Log de detecções e alterações
+### Discord Notifier
+Se disponível, envia notificações de:
+- Palavras bloqueadas
+- Canais bloqueados
+- Detecções suspeitas
 
 ## Configuração
 
@@ -29,8 +30,7 @@ Plugin para gerenciamento de blacklists de palavras e canais no Twitch Giveaway 
     "features": {
         "wordBlacklist": {
             "enabled": true,
-            "caseSensitive": false,
-            "autoBackup": true
+            "caseSensitive": false
         },
         "channelBlacklist": {
             "enabled": true,
@@ -39,6 +39,12 @@ Plugin para gerenciamento de blacklists de palavras e canais no Twitch Giveaway 
     }
 }
 ```
+
+## Arquivos
+
+- `palavras-bl.json`: Lista de palavras bloqueadas
+- `canais-bl.json`: Lista de canais bloqueados
+- `blacklist.log`: Log de detecções
 
 ## Uso
 

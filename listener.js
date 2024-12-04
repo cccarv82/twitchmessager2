@@ -212,7 +212,7 @@ function checkWinnerOrMention(message, usernames, messageUser, channel, currentB
                 return {
                     type: 'winner',
                     message: chalk.green.bold(
-                        `\n🎉 🎉  ��� 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
+                        `\n🎉 🎉   🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
                         `Mensagem original: ${messageUser}: ${message}\n` +
                         `Vitória registrada em wins.json\n` +
                         `Celebração programada em 15 segundos...\n`
@@ -445,7 +445,7 @@ async function connectBot(conta, canais) {
 
         // Log de sucesso
         if (conta.isListener) {
-            console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
+            console.log(chalk.green(`����� Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
         } else {
             console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} pronto para participações`));
         }
@@ -573,35 +573,28 @@ async function setupBotEvents(bot, conta, canais) {
 
     // Adiciona evento de whisper
     bot.on("whisper", async (from, userstate, message, self) => {
-        // Adiciona log de debug
-        console.log(`Debug whisper - De: ${from}, Para: ${conta.nome}, Self: ${self}, Mensagem: ${message}`);
-        
-        if (self) {
-            console.log(`Debug: Mensagem ignorada por ser self (${conta.nome})`);
+        // Ignora apenas mensagens realmente enviadas pelo próprio bot
+        if (self && from.toLowerCase() === conta.nome.toLowerCase()) {
             return;
         }
 
         // Salva todos os whispers no arquivo de log
         await logWhisper(conta, from, message);
 
-        // Mostra todos os whispers no console
-        console.log(formatWhisperMessage(from, message, conta));
-        
-        // Alerta especial para whispers
-        console.log(chalk.bgYellow.black(
-            `\n⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ATENÇÃO! Mensagem privada recebida!\n`
+        // Mostra todos os whispers no console de forma mais limpa
+        console.log(chalk.magenta(
+            `💌 [${new Date().toLocaleTimeString()}] Whisper de ${chalk.cyan(from)} para ${chalk.yellow(conta.nome)}: ${message}`
         ));
 
-        // Se contiver palavras-chave importantes, destaca ainda mais
+        // Se contiver palavras-chave importantes, destaca
         if (WHISPER_PATTERNS.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()))) {
             console.log(chalk.bgRed.white(
-                `\n🎉 🎉 🎉 POSSÍVEL VITÓRIA DETECTADA! 🎉 🎉 🎉\n` +
-                `Verifique a mensagem acima!\n`
+                `🎉 POSSÍVEL VITÓRIA DETECTADA!`
             ));
         }
 
-        // Emite evento para plugins (apenas aqui)
-        await global.pluginManager.emit('onWhisperReceived', from, message);
+        // Emite evento para plugins
+        await global.pluginManager.emit('onWhisperReceived', from, message, conta.nome);
     });
 
     // Também podemos adicionar um evento específico para erros de whisper
@@ -645,7 +638,10 @@ async function main() {
         } else {
             console.log(chalk.green(`✓ ${global.pluginManager.plugins.size} plugins carregados`));
             for (const [name, plugin] of global.pluginManager.plugins) {
-                console.log(chalk.green(`  - ${name} v${plugin.version}`));
+                const version = plugin.version || '1.0.0';
+                const author = plugin.constructor.package?.author?.name || 'Unknown';
+                console.log(chalk.green(`  - ${name} v${version}`));
+                console.log(chalk.gray(`    Autor: ${author}`));
             }
         }
 

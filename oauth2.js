@@ -6,6 +6,15 @@ const config = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
 const clientId = config.CLIENT.ID;
 const clientSecret = config.CLIENT.SECRET;
 
+const scopes = [
+    'chat:read',
+    'chat:edit',
+    'whispers:read',
+    'whispers:edit',
+    'user:manage:whispers',
+    'user:read:email'
+];
+
 async function refreshTokens() {
     try {
         const contas = JSON.parse(fs.readFileSync('contas.json', 'utf8'));
@@ -32,7 +41,8 @@ async function refreshTokens() {
                         grant_type: 'refresh_token',
                         refresh_token: conta.refresh_token,
                         client_id: clientId,
-                        client_secret: clientSecret
+                        client_secret: clientSecret,
+                        scope: scopes.join(' ')
                     }
                 });
 

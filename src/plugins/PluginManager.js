@@ -8,12 +8,45 @@ class PluginManager {
         this.pluginsDir = path.join(__dirname, '../../plugins');
         this.hooks = new Map();
         this.debugMode = false;
+        this.loadOrder = [
+            'Discord Notifier',  // Carrega primeiro por ser provider principal
+            'Smart Keywords',    // Segundo por ser provider de análise
+            'Blacklist',        // Depende do Smart Keywords
+            'Auto Responder'    // Depende de ambos providers
+        ];
     }
 
     setDebugMode(enabled) {
         this.debugMode = enabled;
     }
 
+    // Sistema de Hooks
+    registerHook(hookName, pluginName, callback) {
+        if (!this.hooks.has(hookName)) {
+            this.hooks.set(hookName, new Map());
+        }
+        this.hooks.get(hookName).set(pluginName, callback);
+        if (this.debugMode) {
+            console.log(chalk.gray(`Hook '${hookName}' registrado por ${pluginName}`));
+        }
+    }
+
+    async executeHook(hookName, ...args) {
+        if (!this.hooks.has(hookName)) return [];
+        
+        const results = [];
+        for (const [pluginName, callback] of this.hooks.get(hookName)) {
+            try {
+                const result = await callback(...args);
+                if (result) results.push({ pluginName, result });
+            } catch (error) {
+                console.error(chalk.red(`Erro ao executar hook ${hookName} do plugin ${pluginName}:`, error));
+            }
+        }
+        return results;
+    }
+
+    // Carregamento de Plugins
     async loadPlugins(silent = false) {
         try {
             if (!silent) {
@@ -22,31 +55,48 @@ class PluginManager {
 
             try {
                 await fs.access(this.pluginsDir);
+                if (!silent) {
+                    console.log('Diretório de plugins:', this.pluginsDir);
+                }
             } catch {
                 await fs.mkdir(this.pluginsDir);
-                if (!silent) {
-                    console.log(chalk.yellow('Diretório de plugins criado'));
-                }
+                console.log(chalk.yellow('Diretório de plugins criado'));
                 return;
             }
 
             const pluginDirs = await fs.readdir(this.pluginsDir);
-            
-            for (const pluginDir of pluginDirs) {
-                const pluginPath = path.join(this.pluginsDir, pluginDir);
-                const stat = await fs.stat(pluginPath);
-                
-                if (stat.isDirectory()) {
+            if (!silent) {
+                console.log('Plugins encontrados:', pluginDirs);
+            }
+
+            // Carrega plugins na ordem definida
+            for (const pluginName of this.loadOrder) {
+                const pluginDir = pluginDirs.find(dir => {
                     try {
-                        await this.loadPlugin(pluginDir, silent);
-                    } catch (error) {
-                        if (!silent) {
-                            console.error(chalk.red(`Erro ao carregar plugin ${pluginDir}:`, error));
-                        }
+                        const configPath = path.join(this.pluginsDir, dir, 'config.json');
+                        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                        const Plugin = require(path.join(this.pluginsDir, dir, 'index.js'));
+                        const plugin = new Plugin(this);
+                        return plugin.name === pluginName;
+                    } catch {
+                        return false;
                     }
+                });
+
+                if (pluginDir) {
+                    await this.loadPlugin(pluginDir, silent);
                 }
             }
-            
+
+            // Carrega plugins que não estão na ordem definida
+            for (const dir of pluginDirs) {
+                if (!this.plugins.has(dir)) {
+                    await this.loadPlugin(dir, silent);
+                }
+            }
+
+            await this.checkDependencies(silent);
+
             if (!silent) {
                 console.log(chalk.green(`✓ ${this.plugins.size} plugins carregados`));
             }
@@ -57,30 +107,63 @@ class PluginManager {
         }
     }
 
+    async checkDependencies(silent = false) {
+        for (const [name, plugin] of this.plugins) {
+            if (plugin.config.providers) {
+                for (const [providerName, requirements] of Object.entries(plugin.config.providers)) {
+                    const provider = this.plugins.get(providerName);
+                    if (!provider) {
+                        if (requirements.required) {
+                            throw new Error(`Plugin ${name} requer ${providerName} que não está instalado`);
+                        }
+                        if (!silent) {
+                            console.warn(chalk.yellow(`Aviso: Plugin ${name} funcionalidade reduzida - ${providerName} não encontrado`));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     async loadPlugin(pluginDir, silent = false) {
-        const pluginPath = path.join(this.pluginsDir, pluginDir);
-        const configPath = path.join(pluginPath, 'config.json');
-        
-        const Plugin = require(path.join(pluginPath, 'index.js'));
-        const plugin = new Plugin();
-        
         try {
-            const config = await fs.readFile(configPath, 'utf8');
-            plugin.config = JSON.parse(config);
-        } catch {
-            plugin.config = {};
-        }
+            const pluginPath = path.join(this.pluginsDir, pluginDir);
+            const configPath = path.join(pluginPath, 'config.json');
+            
+            let plugin;
+            const Plugin = require(path.join(pluginPath, 'index.js'));
+            plugin = new Plugin(this);
 
-        plugin.silent = silent;
-        await plugin.onLoad();
-        if (plugin.config.enabled !== false) {
-            await plugin.onEnable();
-        }
-        plugin.silent = false;
+            // Inicializa o plugin (incluindo package.json)
+            await plugin.init();
 
-        this.plugins.set(plugin.name, plugin);
-        if (!silent) {
-            console.log(chalk.green(`✓ Plugin carregado: ${plugin.name} v${plugin.version}`));
+            // Verifica se já existe um plugin com este nome
+            if (this.plugins.has(plugin.name)) {
+                if (!silent) {
+                    console.warn(chalk.yellow(`Plugin ${plugin.name} já está carregado. Ignorando...`));
+                }
+                return;
+            }
+
+            try {
+                const config = await fs.readFile(configPath, 'utf8');
+                plugin.config = JSON.parse(config);
+            } catch (error) {
+                plugin.config = {};
+            }
+
+            plugin.silent = true;
+            await plugin.onLoad();
+            if (plugin.config.enabled !== false) {
+                await plugin.onEnable();
+            }
+            plugin.silent = false;
+
+            this.plugins.set(plugin.name, plugin);
+        } catch (error) {
+            if (!silent) {
+                console.error(`Erro ao carregar plugin ${pluginDir}:`, error);
+            }
         }
     }
 
@@ -99,6 +182,38 @@ class PluginManager {
                 }
             }
         }
+    }
+
+    async listPlugins() {
+        console.log(chalk.cyan('\n=== Plugins Instalados ===\n'));
+        
+        for (const [name, plugin] of this.plugins) {
+            // Debug
+            console.log('Debug - Plugin:', name);
+            console.log('Debug - Constructor package:', plugin.constructor.package);
+            console.log('Debug - Author:', plugin.constructor.package?.author);
+            
+            // Informações básicas
+            const version = plugin.version || '1.0.0';
+            const author = plugin.constructor.package?.author?.name || 'Unknown';
+            
+            console.log(chalk.green(`✓ ${name} v${version}`));
+            console.log(chalk.gray(`   Autor: ${author}`));
+            console.log(chalk.gray(`   ${plugin.description}`));
+
+            // Features do plugin
+            if (plugin.config?.features) {
+                console.log(chalk.gray('   Features:'));
+                for (const [feature, config] of Object.entries(plugin.config.features)) {
+                    const status = config.enabled ? '✓' : '✗';
+                    console.log(chalk.gray(`   ${status} ${feature}`));
+                }
+            }
+            console.log(''); // Linha em branco entre plugins
+        }
+
+        console.log(chalk.yellow('\nPressione Enter para voltar ao menu principal...'));
+        await new Promise(resolve => process.stdin.once('data', resolve));
     }
 }
 

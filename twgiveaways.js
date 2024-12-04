@@ -10,6 +10,10 @@ const PluginManager = require('./src/plugins/PluginManager');
 let serverProcess = null;
 let isShuttingDown = false;
 
+// No início do arquivo, após as importações
+const pluginManager = new PluginManager();
+global.pluginManager = pluginManager;
+
 // Adicione esta função no início do arquivo, após as importações
 function waitForEnter() {
     return new Promise((resolve) => {
@@ -545,6 +549,10 @@ function shutdown(exitCode = 0) {
 async function init() {
     clearScreen();
     await startServer();
+    
+    // Inicializa o PluginManager
+    await global.pluginManager.loadPlugins();
+    
     mainMenu();
 }
 
@@ -631,36 +639,26 @@ async function scanChannels() {
 
 async function listPlugins() {
     clearScreen();
-    console.log(chalk.cyan.bold('\n=== Plugins Instalados ===\n'));
+    console.log(chalk.cyan('\n=== Plugins Instalados ===\n'));
+    
+    for (const [name, plugin] of global.pluginManager.plugins) {
+        // Informações básicas
+        const version = plugin.version || '1.0.0';
+        const author = plugin.constructor.package?.author?.name || 'Unknown';
+        
+        console.log(chalk.green(`✓ ${name} v${version}`));
+        console.log(chalk.gray(`   Autor: ${author}`));
+        console.log(chalk.gray(`   ${plugin.description}`));
 
-    const pluginManager = new PluginManager();
-    await pluginManager.loadPlugins(true);
-
-    if (pluginManager.plugins.size === 0) {
-        console.log(chalk.yellow('Nenhum plugin instalado.'));
-        console.log(chalk.gray('\nPara instalar plugins, coloque-os na pasta plugins/'));
-    } else {
-        // Lista todos os plugins
-        for (const [name, plugin] of pluginManager.plugins) {
-            const status = plugin.config?.enabled ? 
-                chalk.green('✓') : 
-                chalk.red('✗');
-            
-            console.log(`${status} ${chalk.cyan(name)} v${plugin.version}`);
-            console.log(chalk.gray(`   ${plugin.description}`));
-            
-            // Mostra status das features se o plugin tiver
-            if (plugin.config?.features) {
-                console.log(chalk.gray('   Features:'));
-                for (const [feature, config] of Object.entries(plugin.config.features)) {
-                    const featureStatus = config.enabled ? 
-                        chalk.green('✓') : 
-                        chalk.red('✗');
-                    console.log(`   ${featureStatus} ${feature}`);
-                }
+        // Features do plugin
+        if (plugin.config?.features) {
+            console.log(chalk.gray('   Features:'));
+            for (const [feature, config] of Object.entries(plugin.config.features)) {
+                const checkmark = config.enabled ? chalk.green('✓') : chalk.red('✗');
+                console.log(chalk.gray(`   ${checkmark} ${feature}`));
             }
-            console.log(); // Linha em branco entre plugins
         }
+        console.log(''); // Linha em branco entre plugins
     }
 
     console.log(chalk.yellow('\nPressione Enter para voltar ao menu principal...'));

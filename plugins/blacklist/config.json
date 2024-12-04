@@ -17,5 +17,21 @@
             "notifyOnBlock": true,
             "logDetections": true
         }
+    },
+    "providers": {
+        "Smart Keywords": {
+            "required": false,
+            "hooks": [
+                "detectLanguage",
+                "calculateEntropy",
+                "analyzePattern"
+            ]
+        },
+        "Discord Notifier": {
+            "required": false,
+            "hooks": [
+                "sendDiscordMessage"
+            ]
+        }
     }
 } 
