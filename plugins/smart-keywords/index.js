@@ -26,24 +26,23 @@ class SmartKeywordsPlugin extends PluginBase {
     }
 
     async onLoad() {
-        console.log(chalk.cyan(`Inicializando ${this.name}...`));
+        if (!this.silent) {
+            console.log(chalk.cyan(`Inicializando ${this.name}...`));
+        }
         
-        // Cria diretório de dados se não existir
         await fs.mkdir(this.dataDir, { recursive: true });
-        
-        // Carrega padrões existentes
         await this.loadPatterns();
         
-        // Inicia o treinamento inicial
-        await this.trainClassifier();
-        
-        // Configura intervalos de atualização
-        if (this.config.features.patternLearning.enabled) {
-            setInterval(() => this.updatePatterns(), 
-                this.config.features.patternLearning.updateInterval);
+        if (!this.silent) {
+            console.log(chalk.cyan(`Padrões conhecidos: ${this.patterns.size}`));
+            if (this.patterns.size > 0) {
+                for (const [pattern, info] of this.patterns) {
+                    console.log(chalk.gray(`- ${pattern} (${(info.confidence * 100).toFixed(2)}%)`));
+                }
+            }
+            
+            console.log(chalk.green(`✓ ${this.name} inicializado com sucesso`));
         }
-
-        console.log(chalk.green(`✓ ${this.name} inicializado com sucesso`));
     }
 
     async loadPatterns() {
@@ -204,6 +203,30 @@ class SmartKeywordsPlugin extends PluginBase {
 
     async onMessage(channel, message) {
         await this.processMessage(message, channel);
+    }
+
+    async updatePatterns() {
+        if (this.config.features.autoUpdate.enabled) {
+            // Faz backup dos padrões antigos se configurado
+            if (this.config.features.autoUpdate.backupOldPatterns) {
+                const backupFile = path.join(this.dataDir, `patterns_${Date.now()}.json.bak`);
+                await fs.writeFile(backupFile, JSON.stringify([...this.patterns]));
+            }
+
+            // Remove padrões antigos com baixa confiança
+            for (const [pattern, info] of this.patterns) {
+                if (info.confidence < this.config.features.patternLearning.confidenceThreshold) {
+                    this.patterns.delete(pattern);
+                }
+            }
+
+            // Salva padrões atualizados
+            await this.savePatterns();
+            
+            if (this.config.reporting.logLevel === 'debug') {
+                console.log(chalk.gray(`Padrões atualizados. Total: ${this.patterns.size}`));
+            }
+        }
     }
 }
 

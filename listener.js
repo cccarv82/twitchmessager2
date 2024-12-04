@@ -465,6 +465,9 @@ async function setupBotEvents(bot, conta, canais) {
         
         const messageLower = message.toLowerCase();
         
+        // Emite evento de mensagem para plugins
+        await global.pluginManager.emit('onMessage', channel, message);
+        
         // Detecta padrões de mensagens
         const pattern = detectMessagePattern(channel, messageLower);
         if (pattern) {
@@ -621,6 +624,11 @@ async function main() {
             }
         }
 
+        // Configura modo debug baseado nos plugins carregados
+        const debugMode = Array.from(global.pluginManager.plugins.values())
+            .some(plugin => plugin.config?.reporting?.logLevel === 'debug');
+        global.pluginManager.setDebugMode(debugMode);
+
         // Primeiro passo: Renovar tokens
         console.log(chalk.cyan('Renovando tokens...'));
         try {
@@ -712,9 +720,10 @@ async function main() {
 
         // Adiciona horário de início e informações dos canais
         const startTime = new Date();
-        const nextUpdate = new Date(startTime.getTime() + 30 * 60000); // Define nextUpdate aqui
+        const nextUpdate = new Date(startTime.getTime() + 30 * 60000);
 
         console.log(chalk.cyan(`Iniciado em: ${startTime.toLocaleTimeString()}`));
+        console.log(chalk.cyan(`Plugins carregados: ${chalk.yellow(global.pluginManager.plugins.size)}`));
         console.log(chalk.cyan(`Monitorando ${chalk.yellow(canais.length)} canais`));
         console.log(chalk.cyan(`Próxima atualização: ${nextUpdate.toLocaleTimeString()}`));
         console.log(chalk.yellow('\nPressione Ctrl+C para encerrar\n'));

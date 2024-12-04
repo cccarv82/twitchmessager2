@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const { exec } = require('child_process');
 const tmi = require('tmi.js');
 const ini = require('ini');
+const PluginManager = require('./src/plugins/PluginManager');
 
 let serverProcess = null;
 let isShuttingDown = false;
@@ -70,27 +71,19 @@ function startServer() {
 // Função principal do menu
 async function mainMenu() {
     clearScreen();
-    showHeader();
-
+    console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
+    
     const answer = await inquirer.prompt([
         {
             type: 'list',
-            name: 'action',
-            message: 'Escolha uma ação:',
-            choices: [
-                'Adicionar conta',
-                'Gerar Tokens',
-                'Renovar Tokens',
-                'Setar Canais',
-                'Scanear Canais',
-                'Monitorar Canais',
-                'Sair'
-            ]
+            name: 'option',
+            message: 'Escolha uma opção:',
+            choices: menuOptions
         }
     ]);
 
-    switch (answer.action) {
-        case 'Adicionar conta':
+    switch (answer.option) {
+        case 'Adicionar Conta':
             await addAccount();
             break;
         case 'Gerar Tokens':
@@ -99,13 +92,13 @@ async function mainMenu() {
         case 'Renovar Tokens':
             await renewTokens();
             break;
+        case 'Plugins':
+            await listPlugins();
+            break;
         case 'Setar Canais':
             await setChannels();
             break;
-        case 'Scanear Canais':
-            await scanChannels();
-            break;
-        case 'Monitorar Canais':
+        case 'Monitorar':
             await monitorChannels();
             break;
         case 'Sair':
@@ -635,5 +628,54 @@ async function scanChannels() {
         mainMenu();
     }
 }
+
+async function listPlugins() {
+    clearScreen();
+    console.log(chalk.cyan.bold('\n=== Plugins Instalados ===\n'));
+
+    const pluginManager = new PluginManager();
+    await pluginManager.loadPlugins(true);
+
+    if (pluginManager.plugins.size === 0) {
+        console.log(chalk.yellow('Nenhum plugin instalado.'));
+        console.log(chalk.gray('\nPara instalar plugins, coloque-os na pasta plugins/'));
+    } else {
+        // Lista todos os plugins
+        for (const [name, plugin] of pluginManager.plugins) {
+            const status = plugin.config?.enabled ? 
+                chalk.green('✓') : 
+                chalk.red('✗');
+            
+            console.log(`${status} ${chalk.cyan(name)} v${plugin.version}`);
+            console.log(chalk.gray(`   ${plugin.description}`));
+            
+            // Mostra status das features se o plugin tiver
+            if (plugin.config?.features) {
+                console.log(chalk.gray('   Features:'));
+                for (const [feature, config] of Object.entries(plugin.config.features)) {
+                    const featureStatus = config.enabled ? 
+                        chalk.green('✓') : 
+                        chalk.red('✗');
+                    console.log(`   ${featureStatus} ${feature}`);
+                }
+            }
+            console.log(); // Linha em branco entre plugins
+        }
+    }
+
+    console.log(chalk.yellow('\nPressione Enter para voltar ao menu principal...'));
+    await waitForEnter();
+    return mainMenu();
+}
+
+const menuOptions = [
+    'Adicionar Conta',
+    'Gerar Tokens',
+    'Renovar Tokens',
+    'Plugins',
+    'Setar Canais',
+    'Monitorar',
+    'Sair'
+];
 
 init(); 
