@@ -17,6 +17,8 @@ const PluginBase = require('../../src/plugins/PluginBase');
 
 // Importa dependências específicas deste plugin
 const { Client, GatewayIntentBits, WebhookClient } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Classe principal do plugin
@@ -38,6 +40,7 @@ class DiscordNotifierPlugin extends PluginBase {
         // Propriedades específicas deste plugin
         this.webhook = null;                     // Instância do webhook do Discord
         this.lastNotification = 0; // Para controle de cooldown
+        this.errorLog = path.join(process.cwd(), 'log', 'error.log');
     }
 
     /**
@@ -312,11 +315,7 @@ class DiscordNotifierPlugin extends PluginBase {
 
             await this.webhook.send(notification);
         } catch (error) {
-            if (this.config.features?.errorReporting?.enabled) {
-                console.error('Discord Notifier: Erro ao enviar notificação de saída:', 
-                    this.config.features.errorReporting.detailLevel === 'full' ? error : error.message);
-                this.emit('error', error);
-            }
+            await this.logError(`Erro ao sair do canal ${channel}`, error);
         }
     }
 
@@ -457,6 +456,33 @@ class DiscordNotifierPlugin extends PluginBase {
         }
 
         await super.onDisable(); // Importante: chama o método da classe pai
+    }
+
+    /**
+     * Método auxiliar para registrar erros no arquivo de log
+     * @param {string} message - Mensagem de erro
+     * @param {Error|null} error - Objeto de erro opcional
+     */
+    async logError(message, error = null) {
+        const timestamp = new Date().toISOString();
+        const logMessage = `[${timestamp}] ${message}${error ? `: ${error.message}` : ''}\n`;
+        
+        try {
+            // Garante que o diretório log existe
+            const logDir = path.dirname(this.errorLog);
+            await fs.promises.mkdir(logDir, { recursive: true });
+            
+            // Append no arquivo de log
+            await fs.promises.appendFile(this.errorLog, logMessage);
+
+            // Se errorReporting estiver ativado, envia para o Discord também
+            if (this.webhook && this.config.features?.errorReporting?.enabled) {
+                await this.onError(new Error(message));
+            }
+        } catch (logError) {
+            // Se falhar ao escrever no log, mostra no console como fallback
+            console.error('Erro ao escrever no arquivo de log:', logError);
+        }
     }
 
 }

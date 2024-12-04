@@ -1,6 +1,6 @@
 {
     "enabled": true,
-    "webhookUrl": "https://discord.com/api/webhooks/your-webhook-url",
+    "webhookUrl": "https://discord.com/api/webhooks/1313670011528810597/GVSVtiHlk5Xlvo3LfkqD0xWJL43w_b--fyJseZCCe-Qb8FlEpLN8GPb6Wbe52fRIu1uy",
     "features": {
         "giveawayDetection": {
             "enabled": true,

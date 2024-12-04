@@ -1,9 +1,10 @@
 const tmi = require("tmi.js");
-const fs = require("fs");
+const fs = require("fs").promises;
 const ini = require("ini");
 const chalk = require("chalk");
 const { exec } = require('child_process');
 const PluginManager = require('./src/plugins/PluginManager');
+const path = require('path');
 
 // Estrutura para armazenar mensagens por canal
 const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
