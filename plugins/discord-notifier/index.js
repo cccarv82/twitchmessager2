@@ -52,16 +52,21 @@ class DiscordNotifierPlugin extends PluginBase {
      * this.config contém as configurações do config.json
      */
     async onLoad() {
-        console.log(chalk.cyan(`Inicializando plugin ${this.name}...`));
         // Verifica se temos a URL do webhook nas configurações
         if (this.config.webhookUrl) {
             try {
                 this.webhook = new WebhookClient({ url: this.config.webhookUrl });
-                console.log(chalk.green('✓ Webhook do Discord configurado'));
                 
-                // Notifica carregamento se configurado
+                // Só mostra mensagens se não estiver em modo silencioso
+                if (!this.silent) {
+                    console.log(chalk.cyan(`Inicializando plugin ${this.name}...`));
+                    console.log(chalk.green('✓ Webhook do Discord configurado'));
+                }
+
+                // Notifica carregamento se configurado e não estiver em modo silencioso
                 if (this.config.features?.lifecycleEvents?.enabled && 
-                    this.config.features.lifecycleEvents.notifyOnLoad) {
+                    this.config.features.lifecycleEvents.notifyOnLoad &&
+                    !this.silent) {
                     
                     const notification = this.config.formatting?.useEmbed ? {
                         embeds: [{
@@ -91,7 +96,9 @@ class DiscordNotifierPlugin extends PluginBase {
                 throw new Error(`Falha ao inicializar webhook: ${error.message}`);
             }
         } else {
-            console.warn(chalk.yellow('Discord Notifier: webhookUrl não configurada'));
+            if (!this.silent) {
+                console.warn(chalk.yellow('Discord Notifier: webhookUrl não configurada'));
+            }
         }
     }
 
@@ -274,7 +281,7 @@ class DiscordNotifierPlugin extends PluginBase {
         try {
             const notification = this.config.formatting?.useEmbed ? {
                 embeds: [{
-                    title: '📥 Novo Canal Adicionado',
+                    title: '���� Novo Canal Adicionado',
                     description: `Entrou no canal: ${channel}`,
                     color: parseInt((this.config.formatting.color || '#FF0000').replace('#', ''), 16),
                     timestamp: this.config.formatting.includeTimestamp ? new Date() : null
