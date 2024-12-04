@@ -2,6 +2,7 @@ const tmi = require("tmi.js");
 const fs = require("fs");
 const ini = require("ini");
 const chalk = require("chalk");
+const { exec } = require('child_process');
 
 // Estrutura para armazenar mensagens por canal
 const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
@@ -16,17 +17,13 @@ function getConfig() {
     clientId: config.CLIENT.ID,
     clientSecret: config.CLIENT.SECRET,
     nomeDoJogo: config.GAME.NAME,
-    palavrasChave: [
-      "!ticket",
-      "!join",
-      "winner",
-      "giveaway",
-      "key",
-      "!raffle",
-      "!sorteio",
-      "!sorteo",
-      "!claim",
-    ],
+    palavrasChave: config.KEYWORDS.PARTICIPATION.split(','),
+    winnerPatterns: config.KEYWORDS.WINNER.split(','),
+    whisperPatterns: config.KEYWORDS.WHISPER.split(','),
+    participationPatterns: Object.entries(config.PARTICIPATION_TRIGGERS).map(([trigger, command]) => ({
+      trigger,
+      command
+    })),
     patternDetection: {
       threshold: parseInt(config.PATTERN_DETECTION.THRESHOLD) || 5,
       timeWindow: parseInt(config.PATTERN_DETECTION.TIME_WINDOW) || 30000,
@@ -39,6 +36,9 @@ function getConfig() {
 // Obtém configuração inicial
 const config = getConfig();
 const patternConfig = config.patternDetection;
+const WINNER_PATTERNS = config.winnerPatterns;
+const WHISPER_PATTERNS = config.whisperPatterns;
+const PARTICIPATION_PATTERNS = config.participationPatterns;
 
 function formatMessage(channel, username, message, matchedKeyword) {
   const timestamp = new Date().toLocaleTimeString();
@@ -126,59 +126,6 @@ function cleanupPatterns() {
 
 // Configura limpeza periódica
 setInterval(cleanupPatterns, patternConfig.cleanupInterval);
-
-// Adicione estas constantes no início do arquivo
-const WINNER_PATTERNS = [
-  'won the giveaway',
-  'ganhou o sorteio',
-  'ganhou o giveaway',
-  'won the raffle',
-  'is the winner',
-  'é o vencedor',
-  'é a vencedora',
-  'foi o vencedor',
-  'foi a vencedora',
-  'has won',
-];
-
-// Adicione estas constantes no início do arquivo
-const PARTICIPATION_PATTERNS = [
-  {
-    trigger: 'type !join',
-    command: '!join'
-  },
-  {
-    trigger: 'type !ticket',
-    command: '!ticket'
-  },
-  {
-    trigger: 'digite !participar',
-    command: '!participar'
-  },
-  {
-    trigger: 'digite !sorteio',
-    command: '!sorteio'
-  },
-  {
-    trigger: '!raffle',
-    command: '!raffle'
-  },
-  // Podemos adicionar mais padrões aqui
-];
-
-// Adicione no início do arquivo, junto com as outras constantes
-const WHISPER_PATTERNS = [
-  'you won',
-  'você ganhou',
-  'winner',
-  'ganhador',
-  'key',
-  'chave',
-  'code',
-  'código',
-  'congratulations',
-  'parabéns'
-];
 
 // Adicione após as outras funções de log
 function logWin(channel, username, message) {
@@ -627,6 +574,57 @@ async function main() {
         clearScreen();
         console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
         
+        // Primeiro passo: Renovar tokens
+        console.log(chalk.cyan('Renovando tokens...'));
+        try {
+            const { stdout, stderr } = await new Promise((resolve, reject) => {
+                exec('node oauth2.js', (error, stdout, stderr) => {
+                    if (error) reject({ error, stderr });
+                    else resolve({ stdout, stderr });
+                });
+            });
+
+            // Verifica se houve erro no stderr
+            if (stderr && stderr.includes('error')) {
+                throw new Error(`Erro na renovação: ${stderr}`);
+            }
+
+            console.log(chalk.green('✓ Tokens renovados com sucesso!'));
+
+            // Verifica se os tokens foram realmente renovados
+            const contas = JSON.parse(fs.readFileSync('contas.json', 'utf8'));
+            for (const conta of contas) {
+                try {
+                    const response = await fetch('https://id.twitch.tv/oauth2/validate', {
+                        headers: {
+                            'Authorization': `OAuth ${conta.access_token}`
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Token inválido para conta ${conta.nome}`);
+                    }
+
+                    const data = await response.json();
+                    console.log(chalk.green(`✓ Token validado para ${chalk.yellow(conta.nome)}`));
+                } catch (error) {
+                    throw new Error(`Falha na validação do token para ${conta.nome}: ${error.message}`);
+                }
+            }
+
+            console.log(chalk.green('\n✓ Todos os tokens verificados com sucesso!\n'));
+
+        } catch (error) {
+            console.error(chalk.red('\n✖ Erro crítico na renovação/validação dos tokens:'));
+            console.error(chalk.red(error.message));
+            console.error(chalk.yellow('\nSugestões:'));
+            console.log(chalk.yellow('1. Verifique sua conexão com a internet'));
+            console.log(chalk.yellow('2. Verifique se as credenciais no config.ini estão corretas'));
+            console.log(chalk.yellow('3. Tente gerar novos tokens usando "Gerar Tokens"'));
+            console.log(chalk.yellow('4. Verifique se todas as contas têm refresh_token válido'));
+            process.exit(1);
+        }
+
         const canais = JSON.parse(fs.readFileSync("canais.json", "utf8"));
         const contas = JSON.parse(fs.readFileSync("contas.json", "utf8"));
         
@@ -692,5 +690,86 @@ async function main() {
 setInterval(() => {
     participationHistory.clear();
 }, 1800000); // Limpa a cada 30 minutos
+
+// Função para atualizar canais
+async function updateChannels(isListener) {
+    try {
+        const config = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
+        const gameName = config.GAME.NAME;
+
+        if (!gameName) {
+            if (isListener) {
+                console.log(chalk.red('\nErro: Não foi possível atualizar canais - jogo não configurado'));
+            }
+            return;
+        }
+
+        if (isListener) {
+            console.log(chalk.cyan('\n🔄 Atualizando lista de canais...'));
+        }
+        
+        const url = `http://localhost:3000/start-grabber/${encodeURIComponent(gameName)}`;
+        
+        const { stdout } = await new Promise((resolve, reject) => {
+            exec(`curl "${url}"`, (error, stdout, stderr) => {
+                if (error) reject(error);
+                else resolve({ stdout, stderr });
+            });
+        });
+
+        const response = JSON.parse(stdout);
+        
+        if (isListener) {
+            console.log(chalk.green('✓ Canais atualizados com sucesso!'));
+            console.log(chalk.cyan(`➜ Total de canais: ${chalk.yellow(response.totalCanais)}`));
+            console.log(chalk.cyan(`➜ Canais selecionados: ${chalk.yellow(response.canaisSelecionados)}`));
+
+            // Atualiza os canais do bot listener
+            const listenerBot = global.activeBots.find(b => b.getUsername() === listenerConta.nome);
+            if (listenerBot) {
+                const currentChannels = listenerBot.getChannels();
+                const newChannels = response.canais;
+
+                // Canais para sair (estão nos atuais mas não nos novos)
+                const channelsToLeave = currentChannels.filter(c => !newChannels.includes(c));
+                // Canais para entrar (estão nos novos mas não nos atuais)
+                const channelsToJoin = newChannels.filter(c => !currentChannels.includes(c));
+
+                // Sai dos canais que não estão mais na lista
+                for (const channel of channelsToLeave) {
+                    try {
+                        await listenerBot.part(channel);
+                        console.log(chalk.yellow(`➜ Listener saiu do canal: ${channel}`));
+                    } catch (error) {
+                        console.error(`Erro ao sair do canal ${channel}:`, error);
+                    }
+                }
+
+                // Entra nos novos canais
+                for (const channel of channelsToJoin) {
+                    try {
+                        await listenerBot.join(channel);
+                        console.log(chalk.green(`➜ Listener entrou no canal: ${channel}`));
+                    } catch (error) {
+                        console.error(`Erro ao entrar no canal ${channel}:`, error);
+                    }
+                }
+            }
+
+            // Calcula e mostra próxima atualização
+            const nextUpdate = new Date(Date.now() + 30 * 60000);
+            console.log(chalk.cyan(`\nPróxima atualização: ${nextUpdate.toLocaleTimeString()}`));
+            
+            console.log(chalk.cyan('\nContinuando monitoramento com a lista atualizada...\n'));
+        }
+
+        return response.canais;
+    } catch (error) {
+        if (isListener) {
+            console.error(chalk.red('\nErro ao atualizar canais:', error));
+        }
+        return null;
+    }
+}
 
 main();
