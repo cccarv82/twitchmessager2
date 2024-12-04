@@ -1,0 +1,21 @@
+{
+    "enabled": true,
+    "features": {
+        "wordBlacklist": {
+            "enabled": true,
+            "caseSensitive": false,
+            "autoBackup": true,
+            "backupInterval": 3600000
+        },
+        "channelBlacklist": {
+            "enabled": true,
+            "autoSync": true,
+            "removeOnDetection": true
+        },
+        "reporting": {
+            "enabled": true,
+            "notifyOnBlock": true,
+            "logDetections": true
+        }
+    }
+} 

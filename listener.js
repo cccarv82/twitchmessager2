@@ -212,7 +212,7 @@ function checkWinnerOrMention(message, usernames, messageUser, channel, currentB
                 return {
                     type: 'winner',
                     message: chalk.green.bold(
-                        `\n🎉 🎉  🎉 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
+                        `\n🎉 🎉  ��� 🎉 [${timestamp}] ${channelLink} | PARABÉNS! ${chalk.yellow(username)} GANHOU!\n` +
                         `Mensagem original: ${messageUser}: ${message}\n` +
                         `Vitória registrada em wins.json\n` +
                         `Celebração programada em 15 segundos...\n`
@@ -400,7 +400,20 @@ async function connectBot(conta, canais) {
             throw new Error(`Token inválido para ${conta.nome}`);
         }
         
-        // Configuração do bot
+        // Filtra canais blacklistados
+        const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
+        let canaisPermitidos = canais;
+        
+        if (blacklistPlugin) {
+            canaisPermitidos = canais.filter(channel => !blacklistPlugin.isChannelBlacklisted(channel));
+            
+            const canaisBloqueados = canais.length - canaisPermitidos.length;
+            if (canaisBloqueados > 0 && !this.silent) {
+                console.log(chalk.yellow(`ℹ️ ${canaisBloqueados} canais na blacklist foram ignorados`));
+            }
+        }
+
+        // Configuração do bot com canais filtrados
         const bot = new tmi.Client({
             options: { 
                 debug: false,
@@ -415,7 +428,7 @@ async function connectBot(conta, canais) {
                 username: conta.nome,
                 password: token,
             },
-            channels: conta.isListener ? canais : [],
+            channels: conta.isListener ? canaisPermitidos : [],
             logger: {
                 info: () => {},
                 warn: () => {},
@@ -465,6 +478,18 @@ async function setupBotEvents(bot, conta, canais) {
         
         const messageLower = message.toLowerCase();
         
+        // Verifica blacklist antes de processar a mensagem
+        const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
+        if (blacklistPlugin) {
+            const isBlacklisted = await blacklistPlugin.onMessage(channel, message);
+            if (isBlacklisted) {
+                if (conta.isListener) {
+                    console.log(chalk.red(`🚫 Mensagem bloqueada em ${channel}: ${message}`));
+                }
+                return;
+            }
+        }
+
         // Emite evento de mensagem para plugins
         await global.pluginManager.emit('onMessage', channel, message);
         
@@ -781,6 +806,18 @@ async function updateChannels(isListener) {
 
         const response = JSON.parse(stdout);
         
+        // Filtra canais blacklistados antes de salvar/usar
+        const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
+        if (blacklistPlugin) {
+            response.canais = response.canais.filter(channel => 
+                !blacklistPlugin.isChannelBlacklisted(channel)
+            );
+            
+            if (isListener) {
+                console.log(chalk.yellow(`ℹ️ Canais na blacklist foram removidos da lista`));
+            }
+        }
+
         if (isListener) {
             console.log(chalk.green('✓ Canais atualizados com sucesso!'));
             console.log(chalk.cyan(`➜ Total de canais: ${chalk.yellow(response.totalCanais)}`));
