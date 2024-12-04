@@ -1,0 +1,42 @@
+{
+    "enabled": true,
+    "webhookUrl": "https://discord.com/api/webhooks/your-webhook-url",
+    "features": {
+        "giveawayDetection": {
+            "enabled": true,
+            "includePattern": true,
+            "mentionRole": "",
+            "cooldown": 30
+        },
+        "winNotification": {
+            "enabled": true,
+            "mentionEveryone": false,
+            "includeStats": true
+        },
+        "whisperNotification": {
+            "enabled": true,
+            "onlyKeywords": false
+        },
+        "channelUpdates": {
+            "enabled": false,
+            "onlyListener": true
+        },
+        "errorReporting": {
+            "enabled": true,
+            "detailLevel": "full"
+        },
+        "lifecycleEvents": {
+            "enabled": true,
+            "notifyOnLoad": true,
+            "notifyOnUnload": true,
+            "notifyOnEnable": true,
+            "notifyOnDisable": true
+        }
+    },
+    "formatting": {
+        "useEmbed": true,
+        "color": "#FF0000",
+        "includeTimestamp": true,
+        "includePluginVersion": true
+    }
+} 
