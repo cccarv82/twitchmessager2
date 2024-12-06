@@ -6,6 +6,7 @@ const { exec } = require('child_process');
 const PluginManager = require('./src/plugins/PluginManager');
 const path = require('path');
 const { logger } = require('./src/logger');
+const DisplayManager = require('./src/services/DisplayManager');
 
 // Estrutura para armazenar mensagens por canal
 const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
@@ -340,7 +341,7 @@ async function participateWithAllAccounts(currentBot, channel, command, isListen
     }
 }
 
-// Adicione após as outras funções
+// Adicione após as outras funões
 async function logWhisper(conta, from, message) {
     const timestamp = new Date().toISOString();
     const logEntry = {
@@ -434,8 +435,8 @@ async function connectBot(conta, canais) {
                 info: () => {},
                 warn: () => {},
                 error: (message) => {
-                    if (conta.isListener && !message.includes('No response from Twitch')) {
-                        console.error(chalk.red(message));
+                    if (!message.includes('No response from Twitch')) {
+                        logger.error(message);
                     }
                 }
             }
@@ -444,19 +445,18 @@ async function connectBot(conta, canais) {
         // Tenta conectar
         await bot.connect();
 
-        // Log de sucesso
+        // Log mais limpo
         if (conta.isListener) {
-            console.log(chalk.green(` Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
-        } else {
-            console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} pronto para participações`));
+            DisplayManager.logBotAction({
+                bot: conta.nome,
+                action: 'connected',
+                channels: canais.length
+            });
         }
-
-        // Configura eventos do bot
-        await setupBotEvents(bot, conta, canais);
 
         return bot;
     } catch (error) {
-        console.error(chalk.red(`✖ Falha ao configurar bot para conta ${conta.nome}: ${error.message}`));
+        logger.error(`Erro ao conectar bot ${conta.nome}:`, error);
         return null;
     }
 }
@@ -478,6 +478,7 @@ async function setupBotEvents(bot, conta, canais) {
         if (self) return;
         
         const messageLower = message.toLowerCase();
+        const channelName = channel.replace('#', '');
         
         // Verifica blacklist antes de processar a mensagem
         const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
@@ -485,29 +486,25 @@ async function setupBotEvents(bot, conta, canais) {
             const isBlacklisted = await blacklistPlugin.onMessage(channel, message);
             if (isBlacklisted) {
                 if (conta.isListener) {
-                    console.log(chalk.red(`🚫 Mensagem bloqueada em ${channel}: ${message}`));
+                    console.log(chalk.red(`🚫 Mensagem bloqueada em ${channelName}: ${message}`));
                 }
                 return;
             }
         }
 
         // Emite evento de mensagem para plugins
-        await global.pluginManager.emit('onMessage', channel, message);
+        await global.pluginManager.emit('onMessage', channelName, message);
         
         // Detecta padrões de mensagens
         const pattern = detectMessagePattern(channel, messageLower);
         if (pattern) {
-            // Só mostra mensagem de detecção se for listener
-            if (conta.isListener) {
-                console.log(
-                    chalk.magenta(
-                        `\n🔍 🔍 🔍 🔍 🔍 [${new Date().toLocaleTimeString()}] ${pattern.channel} | ` +
-                        `Possível ${pattern.isParticipationCommand ? 'comando de participação' : 'giveaway'} detectado!\n` +
-                        `Mensagem "${pattern.message}" repetida ${pattern.count} vezes ` +
-                        `nos ltimos ${pattern.timeWindow} segundos\n`
-                    )
-                );
-            }
+            DisplayManager.logPatternDetection({
+                channel: channelName,
+                message: pattern.message,
+                count: pattern.count,
+                timeWindow: pattern.timeWindow,
+                type: pattern.isParticipationCommand ? 'participation' : 'pattern'
+            });
 
             // Se parece ser um comando de participação
             if (pattern.isParticipationCommand) {
@@ -633,33 +630,47 @@ global.pluginManager = new PluginManager();
 // Modifique a função main para inicializar as configurações
 async function main() {
     try {
-        await initializeConfig(); // Inicializa as configurações antes de continuar
-        clearScreen();
-        console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
+        // Inicializa configurações primeiro
+        await initializeConfig();
+        const currentConfig = await getConfig();
 
-        // Carrega os plugins
-        console.log(chalk.cyan('Carregando plugins...'));
+        // Carrega plugins primeiro
         await global.pluginManager.loadPlugins();
         
-        if (global.pluginManager.plugins.size === 0) {
-            console.log(chalk.yellow('Nenhum plugin carregado'));
-        } else {
-            console.log(chalk.green(`✓ ${global.pluginManager.plugins.size} plugins carregados`));
-            for (const [name, plugin] of global.pluginManager.plugins) {
-                const version = plugin.version || '1.0.0';
-                const author = plugin.constructor.package?.author?.name || 'Unknown';
-                console.log(chalk.green(`  - ${name} v${version}`));
-                console.log(chalk.gray(`    Autor: ${author}`));
+        // Carrega canais e contas
+        const canaisData = await fs.readFile("canais.json", "utf8");
+        const canais = JSON.parse(canaisData);
+        const contasData = await fs.readFile("contas.json", "utf8");
+        const contas = JSON.parse(contasData);
+
+        // Configura e conecta bots
+        const bots = [];
+        for (const conta of contas) {
+            const bot = await connectBot(conta, canais);
+            if (bot) {
+                await setupBotEvents(bot, conta, canais);
+                bots.push(bot);
             }
         }
 
-        // Configura modo debug baseado nos plugins carregados
-        const debugMode = Array.from(global.pluginManager.plugins.values())
-            .some(plugin => plugin.config?.reporting?.logLevel === 'debug');
-        global.pluginManager.setDebugMode(debugMode);
+        if (bots.length === 0) {
+            throw new Error('Nenhum bot pôde ser iniciado');
+        }
 
-        // Primeiro passo: Renovar tokens
-        console.log(chalk.cyan('Renovando tokens...'));
+        global.activeBots = bots;
+
+        // Só agora mostra o display
+        DisplayManager.clearScreen();
+        DisplayManager.showHeader();
+        DisplayManager.showStatus({
+            startTime: new Date(),
+            pluginsCount: global.pluginManager.plugins.size,
+            channelsCount: canais.length,
+            nextUpdate: new Date(Date.now() + 30 * 60000),
+            gameName: currentConfig.nomeDoJogo || 'Not Set'
+        });
+
+        // Verifica tokens
         try {
             const { stdout, stderr } = await new Promise((resolve, reject) => {
                 exec('node oauth2.js', (error, stdout, stderr) => {
@@ -668,17 +679,11 @@ async function main() {
                 });
             });
 
-            // Verifica se houve erro no stderr
             if (stderr && stderr.includes('error')) {
                 throw new Error(`Erro na renovação: ${stderr}`);
             }
 
-            console.log(chalk.green('✓ Tokens renovados com sucesso!'));
-
-            // Verifica se os tokens foram realmente renovados
-            const contasData = await fs.readFile('contas.json', 'utf8');
-            const contas = JSON.parse(contasData);
-            
+            // Valida tokens
             for (const conta of contas) {
                 try {
                     const response = await fetch('https://id.twitch.tv/oauth2/validate', {
@@ -690,88 +695,31 @@ async function main() {
                     if (!response.ok) {
                         throw new Error(`Token inválido para conta ${conta.nome}`);
                     }
-
-                    const data = await response.json();
-                    console.log(chalk.green(`✓ Token validado para ${chalk.yellow(conta.nome)}`));
                 } catch (error) {
                     throw new Error(`Falha na validação do token para ${conta.nome}: ${error.message}`);
                 }
             }
 
-            console.log(chalk.green('\n✓ Todos os tokens verificados com sucesso!\n'));
-
         } catch (error) {
-            console.error(chalk.red('\n✖ Erro crítico na renovação/validação dos tokens:'));
-            console.error(chalk.red(error.message));
-            console.error(chalk.yellow('\nSugestões:'));
-            console.log(chalk.yellow('1. Verifique sua conexão com a internet'));
-            console.log(chalk.yellow('2. Verifique se as credenciais no config.ini estão corretas'));
-            console.log(chalk.yellow('3. Tente gerar novos tokens usando "Gerar Tokens"'));
-            console.log(chalk.yellow('4. Verifique se todas as contas têm refresh_token válido'));
-            process.exit(1);
+            logger.error('Erro na verificação de tokens:', error);
+            throw error;
         }
 
-        const canaisData = await fs.readFile("canais.json", "utf8");
-        const canais = JSON.parse(canaisData);
-        const contasData = await fs.readFile("contas.json", "utf8");
-        const contas = JSON.parse(contasData);
-        
-        const listenerConta = contas.find(c => c.isListener);
-        if (!listenerConta) {
-            console.error(chalk.red('Erro: Nenhuma conta configurada como listener!'));
-            console.log(chalk.yellow('Configure uma conta como listener no arquivo contas.json'));
-            process.exit(1);
-        }
-
-        console.log(chalk.green(`➜ Conta listener: ${chalk.yellow(listenerConta.nome)}`));
-        console.log(chalk.green(`➜ Monitorando ${chalk.yellow(canais.length)} canais`));
-        console.log(chalk.green(`➜ Usando ${chalk.yellow(contas.length)} contas para participação\n`));
-
-        console.log(chalk.cyan('Iniciando bots...\n'));
-
-        const bots = [];
-        for (const conta of contas) {
-            const bot = await connectBot(conta, canais);
-            if (bot) {
-                bots.push(bot);
-            }
-        }
-
-        if (bots.length === 0) {
-            throw new Error('Nenhum bot pôde ser iniciado');
-        }
-
-        global.activeBots = bots;
-
-        clearScreen(); // Limpa o console novamente após todas as conexões
-        console.log(chalk.cyan.bold('\n=== Twitch Giveaway Monitor ===\n'));
-        console.log(chalk.green('✓ Monitoramento iniciado com sucesso!'));
-
-        // Adiciona horário de início e informações dos canais
-        const startTime = new Date();
-        const nextUpdate = new Date(startTime.getTime() + 30 * 60000);
-
-        console.log(chalk.cyan(`Iniciado em: ${startTime.toLocaleTimeString()}`));
-        console.log(chalk.cyan(`Plugins carregados: ${chalk.yellow(global.pluginManager.plugins.size)}`));
-        console.log(chalk.cyan(`Monitorando ${chalk.yellow(canais.length)} canais`));
-        console.log(chalk.cyan(`Próxima atualização: ${nextUpdate.toLocaleTimeString()}`));
-        console.log(chalk.yellow('\nPressione Ctrl+C para encerrar\n'));
-
-        // Mantém o processo rodando e desconecta adequadamente
+        // Configura encerramento gracioso
         process.on('SIGINT', async () => {
-            console.log(chalk.yellow('\nFinalizando monitoramento...'));
+            logger.info('\nFinalizando monitoramento...');
             for (const bot of bots) {
                 try {
                     await bot.disconnect();
                 } catch (error) {
-                    // Silenciosamente ignora erros de desconexão
+                    // Ignora erros de desconexão
                 }
             }
             process.exit();
         });
 
     } catch (error) {
-        console.error(chalk.red("\n✖ Erro ao inicializar:", error));
+        logger.error("Erro ao inicializar:", error);
         process.exit(1);
     }
 }

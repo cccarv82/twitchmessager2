@@ -4,6 +4,28 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [1.1.9] - 2024-03-20
+### Corrigido
+- Compatibilidade do boxen com CommonJS
+- Versão do boxen fixada em 5.1.2
+- Erros de display no monitoramento
+
+### Melhorado
+- Estabilidade do display
+- Compatibilidade com Node.js
+
+## [1.1.8] - 2024-03-20
+### Adicionado
+- Novo sistema de display com interface moderna
+- Gerenciador de exibição centralizado
+- Boxes estilizados para diferentes tipos de mensagens
+
+### Melhorado
+- Visual do painel de monitoramento
+- Organização dos logs
+- Redução de ruído visual
+- Agrupamento de informações relacionadas
+
 ## [1.1.7] - 2024-03-20
 ### Corrigido
 - Adicionado import do logger no listener.js
@@ -106,5 +128,5 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Primeira versão pública
 - Suporte básico a monitoramento de canais
 - Sistema de renovação de tokens
-- Detecç��o simples de padrões
+- Detecção simples de padrões
 - Interface de linha de comando básica 
