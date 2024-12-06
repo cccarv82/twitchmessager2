@@ -71,6 +71,9 @@ function formatMessage(channel, username, message, matchedKeyword) {
     chalk.red.bold(matchedKeyword)
   );
 
+  // Só exibe mensagens que contenham palavras-chave ou padrões relevantes
+  if (!matchedKeyword) return null;
+
   return `👉 👉 👉 👉 [${timestamp}] ${channelLink} | ${user}: ${msg}`;
 }
 
@@ -511,8 +514,8 @@ async function setupBotEvents(bot, conta, canais) {
         const channelName = channel.replace('#', '');
         const messageLower = message.toLowerCase().trim();
 
-        // Log de todas as mensagens
-        console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] ${chalk.cyan(channelName)} | ${chalk.yellow(tags.username)}: ${message}`));
+        // Remove o log de todas as mensagens
+        // console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] ${chalk.cyan(channelName)} | ${chalk.yellow(tags.username)}: ${message}`));
 
         try {
             // 1. Comandos conhecidos - participação imediata

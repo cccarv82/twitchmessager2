@@ -4,7 +4,7 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
-## [1.3.0] - 2024-03-20
+## [1.3.1] - 2024-03-20
 ### Adicionado
 - Sistema de análise de comportamento do chat com Machine Learning
 - Detecção de padrões por múltiplos usuários
@@ -17,6 +17,16 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Redução de participações em falsos positivos
 - Integração com sistema de plugins
 - Performance da análise de mensagens
+- Redução de ruído visual no console
+- Filtragem inteligente de mensagens de chat
+- Otimização da exibição de logs
+- Performance geral do monitoramento
+
+### Corrigido
+- Mensagens de debug excessivas do Twitch
+- Sobrecarga de mensagens no console
+- Melhor formatação de mensagens relevantes
+- Removido log excessivo de mensagens do chat
 
 ## [1.2.0] - 2024-03-20
 ### Adicionado

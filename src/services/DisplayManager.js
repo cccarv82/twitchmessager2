@@ -125,13 +125,22 @@ class DisplayManager {
 
     // Sobrescreve console.warn para suprimir warnings indesejados
     setupConsole() {
-        // Sobrescreve os métodos de console globalmente
         const originalLog = console.log;
         
-        // Mantém apenas o console.log para mensagens do display
         global.console.log = (...args) => {
-            // Se a mensagem contiver certos padrões, envia para log
             const message = args.join(' ');
+            
+            // Filtra mensagens de debug do Twitch
+            if (message.includes('error: No response from Twitch.')) {
+                return;
+            }
+
+            // Filtra mensagens de chat que não são relevantes
+            if (message.match(/\[\d+:\d+:\d+ [AP]M\]/)) {
+                return;
+            }
+
+            // Se a mensagem contiver certos padrões, envia para log
             if (message.includes('error:') || 
                 message.includes('warn:') || 
                 message.includes('info:') ||
@@ -140,11 +149,12 @@ class DisplayManager {
                 logger.info(message);
                 return;
             }
+
             // Caso contrário, mostra no console
             originalLog.apply(console, args);
         };
 
-        // Redireciona outros tipos de log direto para arquivo
+        // Mantém os outros redirecionamentos
         global.console.info = (...args) => {
             logger.info(args.join(' '));
         };
