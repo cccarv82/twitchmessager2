@@ -50,7 +50,7 @@ class DisplayManager {
             chalk.cyan('⏰') + chalk.bold(' Next Update: ') + chalk.yellow(nextUpdate.toLocaleTimeString()),
             chalk.gray('Press Ctrl+C to exit'),
             '',
-            chalk.yellow('════════════════ LIVE MESSAGES ════════════════'),
+            chalk.yellow('════════════════ SORTEIOS MONITORADOS ════════════════'),
             ''
         ].join('\n');
 
@@ -58,9 +58,8 @@ class DisplayManager {
     }
 
     logPatternDetection(data) {
-        const { channel, message, count, timeWindow, type } = data;
+        const { channel, message, count, uniqueUsers, timeWindow, type } = data;
         const now = new Date();
-        const channelName = channel.replace('#', '');
         const timestamp = now.toLocaleTimeString();
 
         if (this.lastCommand === message && (now - this.lastCommandTime) < 2000) return;
@@ -71,16 +70,15 @@ class DisplayManager {
         const icon = type === 'participation' ? '🎯' : '🔍';
         const messageLines = this.wrapText(message, 70);
 
-        const channelUrl = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan.bold(channelName)}\u001b]8;;\u0007`;
+        const channelUrl = `\u001b]8;;https://twitch.tv/${channel}\u0007${chalk.cyan.bold(channel)}\u001b]8;;\u0007`;
 
         console.log('\n' + chalk.gray('─'.repeat(80)));
         console.log(`${icon} ${channelUrl} ${chalk.gray(`at ${timestamp}`)}`);
         console.log(`${chalk.yellow.bold(type === 'participation' ? 'Command' : 'Pattern')}: ${chalk.green(messageLines[0])}`);
-        // Se houver mais linhas na mensagem
         messageLines.slice(1).forEach(line => {
             console.log(`${' '.repeat(type === 'participation' ? 9 : 8)}${chalk.green(line)}`);
         });
-        console.log(chalk.gray(`Repeated ${chalk.white.bold(count)} times in ${chalk.white.bold(timeWindow)}s`));
+        console.log(chalk.gray(`${uniqueUsers} usuários diferentes enviaram ${count} mensagens em ${timeWindow}s`));
     }
 
     logParticipation(data) {

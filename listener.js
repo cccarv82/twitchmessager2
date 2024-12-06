@@ -11,7 +11,7 @@ const BotManager = require('./src/services/BotManager');
 const ChatAnalyzer = require('./src/services/ChatAnalyzer');
 
 // Estrutura para armazenar mensagens por canal
-const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
+const messagePatterns = new Map(); // Canal -> Map<mensagem, { count, timestamps, users }>
 
 // Estrutura para controlar participações por canal
 const participationHistory = new Map(); // Canal -> Map<conta, Set<comando>>
@@ -514,9 +514,6 @@ async function setupBotEvents(bot, conta, canais) {
         const channelName = channel.replace('#', '');
         const messageLower = message.toLowerCase().trim();
 
-        // Remove o log de todas as mensagens
-        // console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] ${chalk.cyan(channelName)} | ${chalk.yellow(tags.username)}: ${message}`));
-
         try {
             // 1. Comandos conhecidos - participação imediata
             if (BotManager.config.commonCommands.includes(messageLower)) {
@@ -525,53 +522,62 @@ async function setupBotEvents(bot, conta, canais) {
                 return;
             }
 
-            // 2. Detecção de novos comandos
-            if (messageLower.startsWith('!')) {
-                if (messageLower.includes(' ')) return;
+            // 2. Inicializa tracking do canal
+            if (!channelCommands.has(channelName)) {
+                channelCommands.set(channelName, new Map());
+            }
 
-                // Inicializa tracking do canal
-                if (!channelCommands.has(channelName)) {
-                    channelCommands.set(channelName, new Map());
-                }
+            const commands = channelCommands.get(channelName);
+            
+            // 3. Processa a mensagem
+            if (!commands.has(messageLower)) {
+                commands.set(messageLower, {
+                    users: new Set(),
+                    messages: [],
+                    firstSeen: Date.now()
+                });
+            }
 
-                const commands = channelCommands.get(channelName);
+            const cmdData = commands.get(messageLower);
+            cmdData.users.add(tags.username);
+            cmdData.messages.push({
+                user: tags.username,
+                timestamp: Date.now()
+            });
+
+            // Limpa mensagens antigas (mais de 30 segundos)
+            const now = Date.now();
+            cmdData.messages = cmdData.messages.filter(msg => now - msg.timestamp <= 30000);
+
+            // 4. Verifica padrões de detecção
+            // DETECÇÃO: 5+ usuários diferentes E 5+ mensagens em 30 segundos
+            if (cmdData.users.size >= 5 && cmdData.messages.length >= 5 && 
+                messageLower.length >= 2) { // Evita mensagens muito curtas
                 
-                // Inicializa tracking do comando
-                if (!commands.has(messageLower)) {
-                    commands.set(messageLower, {
-                        users: new Set(),
-                        count: 0,
-                        firstSeen: Date.now()
+                const timeSinceFirst = now - cmdData.firstSeen;
+                if (timeSinceFirst <= 30000) { // 30 segundos
+                    logger.info(`Possível sorteio detectado em ${channelName}:
+                        Mensagem: ${messageLower}
+                        Usuários únicos: ${cmdData.users.size}
+                        Total mensagens: ${cmdData.messages.length}
+                        Tempo: ${timeSinceFirst}ms
+                    `);
+
+                    // Notifica sobre o padrão detectado
+                    DisplayManager.logPatternDetection({
+                        channel: channelName,
+                        message: messageLower,
+                        count: cmdData.messages.length,
+                        uniqueUsers: cmdData.users.size,
+                        timeWindow: 30,
+                        type: 'participation'
                     });
-                }
 
-                const cmdData = commands.get(messageLower);
-                cmdData.users.add(tags.username);
-                cmdData.count++;
-
-                // Log para debug
-                logger.debug(`
-                    Canal: ${channelName}
-                    Comando: ${messageLower}
-                    Usuários únicos: ${cmdData.users.size}
-                    Total usos: ${cmdData.count}
-                `);
-
-                // DETECÇÃO: 3+ usuários diferentes OU 5+ usos em 30 segundos
-                if (cmdData.users.size >= 3 || cmdData.count >= 5) {
-                    const timeSinceFirst = Date.now() - cmdData.firstSeen;
-                    if (timeSinceFirst <= 30000) { // 30 segundos
-                        logger.info(`Sorteio detectado em ${channelName}:
-                            Comando: ${messageLower}
-                            Usuários: ${Array.from(cmdData.users).join(', ')}
-                            Total usos: ${cmdData.count}
-                        `);
-
-                        await BotManager.participateInGiveaway(channel, messageLower, conta.nome);
-                        commands.delete(messageLower);
-                    }
+                    await BotManager.participateInGiveaway(channel, messageLower, conta.nome);
+                    commands.delete(messageLower); // Limpa após participar
                 }
             }
+
         } catch (error) {
             logger.error(`Erro ao processar mensagem em ${channelName}:`, error);
         }
