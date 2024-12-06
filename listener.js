@@ -513,15 +513,12 @@ async function setupBotEvents(bot, conta, canais) {
         
         const channelName = channel.replace('#', '');
         const messageLower = message.toLowerCase().trim();
+        const normalizedMessage = normalizeCommand(messageLower);
 
         try {
-            // 1. Comandos conhecidos - participação imediata
-            if (BotManager.config.commonCommands.includes(messageLower)) {
-                logger.info(`Comando conhecido detectado em ${channelName}: ${messageLower}`);
-                await BotManager.participateInGiveaway(channel, messageLower, conta.nome);
-                return;
-            }
-
+            // 1. Comandos conhecidos - verificação atualizada
+            const isKnownCommand = BotManager.isKnownCommand(normalizedMessage);
+            
             // 2. Inicializa tracking do canal
             if (!channelCommands.has(channelName)) {
                 channelCommands.set(channelName, new Map());
@@ -529,52 +526,63 @@ async function setupBotEvents(bot, conta, canais) {
 
             const commands = channelCommands.get(channelName);
             
-            // 3. Processa a mensagem
-            if (!commands.has(messageLower)) {
-                commands.set(messageLower, {
+            // 3. Processa a mensagem usando a mensagem normalizada
+            if (!commands.has(normalizedMessage)) {
+                commands.set(normalizedMessage, {
                     users: new Set(),
                     messages: [],
                     firstSeen: Date.now()
                 });
             }
 
-            const cmdData = commands.get(messageLower);
+            const cmdData = commands.get(normalizedMessage);
             cmdData.users.add(tags.username);
             cmdData.messages.push({
                 user: tags.username,
                 timestamp: Date.now()
             });
 
-            // Limpa mensagens antigas (mais de 30 segundos)
+            // Limpa mensagens antigas
             const now = Date.now();
-            cmdData.messages = cmdData.messages.filter(msg => now - msg.timestamp <= 30000);
+            const config = isKnownCommand ? 
+                BotManager.getCommandConfig(true) : 
+                BotManager.getCommandConfig(false);
+
+            cmdData.messages = cmdData.messages.filter(msg => 
+                now - msg.timestamp <= config.timeWindow
+            );
 
             // 4. Verifica padrões de detecção
-            // DETECÇÃO: 5+ usuários diferentes E 5+ mensagens em 30 segundos
-            if (cmdData.users.size >= 5 && cmdData.messages.length >= 5 && 
-                messageLower.length >= 2) { // Evita mensagens muito curtas
-                
+            const hasEnoughUsers = isKnownCommand ? 
+                cmdData.users.size >= config.minUsers :  // Para comandos conhecidos, só verifica usuários
+                (cmdData.users.size >= config.minUsers && 
+                 cmdData.messages.length >= config.minMessages);  // Para desconhecidos, verifica ambos
+
+            if (hasEnoughUsers) {
                 const timeSinceFirst = now - cmdData.firstSeen;
-                if (timeSinceFirst <= 30000) { // 30 segundos
+                if (timeSinceFirst <= config.timeWindow) {
                     logger.info(`Possível sorteio detectado em ${channelName}:
-                        Mensagem: ${messageLower}
-                        Usuários únicos: ${cmdData.users.size}
-                        Total mensagens: ${cmdData.messages.length}
+                        Mensagem: ${normalizedMessage}
+                        Usuários únicos: ${cmdData.users.size}/${config.minUsers}
+                        Total mensagens: ${cmdData.messages.length}/${isKnownCommand ? config.minUsers : config.minMessages}
+                        Tipo: ${isKnownCommand ? 'Comando conhecido' : 'Padrão detectado'}
+                        Config usada: ${JSON.stringify(config)}
                         Tempo: ${timeSinceFirst}ms
                     `);
 
                     // Notifica sobre o padrão detectado
                     DisplayManager.logPatternDetection({
                         channel: channelName,
-                        message: messageLower,
+                        message: normalizedMessage,
                         count: cmdData.messages.length,
                         uniqueUsers: cmdData.users.size,
-                        timeWindow: 30,
-                        type: 'participation'
+                        timeWindow: Math.floor(timeSinceFirst / 1000),
+                        type: 'participation',
+                        isKnownCommand
                     });
 
-                    await BotManager.participateInGiveaway(channel, messageLower, conta.nome);
-                    commands.delete(messageLower); // Limpa após participar
+                    await BotManager.participateInGiveaway(channel, normalizedMessage, conta.nome);
+                    commands.delete(normalizedMessage);
                 }
             }
 
@@ -678,7 +686,7 @@ async function main() {
                     });
                     
                     if (!response.ok) {
-                        throw new Error(`Token inválido para conta ${conta.nome}`);
+                        throw new Error(`Token invlido para conta ${conta.nome}`);
                     }
                 } catch (error) {
                     throw new Error(`Falha na validação do token para ${conta.nome}: ${error.message}`);
@@ -914,3 +922,15 @@ setInterval(() => {
 setInterval(() => {
     channelCommands.clear();
 }, 30000);
+
+// Adiciona função de normalização
+function normalizeCommand(command) {
+    return command
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\u200B-\u200D\uFEFF\u0000-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F]/g, '')
+        .replace(/[^\x20-\x7E]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}

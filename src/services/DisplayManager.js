@@ -1,12 +1,15 @@
 const chalk = require('chalk');
 const boxen = require('boxen');
 const { logger } = require('../logger');
+const BotManager = require('./BotManager');
 
 class DisplayManager {
     constructor() {
         this.lastCommand = null;
         this.lastCommandTime = null;
         this.headerShown = false;
+        this.detectionHistory = new Map(); // Novo: histórico de detecções
+        this.detectionCooldown = 5 * 60 * 1000; // 5 minutos em ms
     }
 
     showHeader() {
@@ -57,28 +60,63 @@ class DisplayManager {
         console.log(status);
     }
 
+    // Função para normalizar mensagens (remove caracteres invisíveis e espaços extras)
+    normalizeMessage(message) {
+        return message
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+            .replace(/[\u200B-\u200D\uFEFF\u0000-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F]/g, '') // Remove caracteres invisíveis
+            .replace(/[^\x20-\x7E]/g, '') // Remove todos os caracteres não imprimíveis
+            .replace(/\s+/g, ' ') // Normaliza espaços
+            .trim()
+            .toLowerCase();
+    }
+
     logPatternDetection(data) {
-        const { channel, message, count, uniqueUsers, timeWindow, type } = data;
+        const { channel, message, count, uniqueUsers, timeWindow, type, isKnownCommand } = data;
         const now = new Date();
         const timestamp = now.toLocaleTimeString();
 
-        if (this.lastCommand === message && (now - this.lastCommandTime) < 2000) return;
-
-        this.lastCommand = message;
-        this.lastCommandTime = now;
+        // Normaliza a mensagem antes de criar a chave
+        const normalizedMessage = this.normalizeMessage(message);
+        const patternKey = `${channel}:${normalizedMessage}`;
+        
+        // Verifica se já mostrou recentemente
+        const lastDetection = this.detectionHistory.get(patternKey);
+        if (lastDetection && (now - lastDetection) < this.detectionCooldown) {
+            return;
+        }
+        
+        // Registra/atualiza o timestamp da detecção
+        this.detectionHistory.set(patternKey, now.getTime());
 
         const icon = type === 'participation' ? '🎯' : '🔍';
         const messageLines = this.wrapText(message, 70);
-
         const channelUrl = `\u001b]8;;https://twitch.tv/${channel}\u0007${chalk.cyan.bold(channel)}\u001b]8;;\u0007`;
 
-        console.log('\n' + chalk.gray('─'.repeat(80)));
-        console.log(`${icon} ${channelUrl} ${chalk.gray(`at ${timestamp}`)}`);
-        console.log(`${chalk.yellow.bold(type === 'participation' ? 'Command' : 'Pattern')}: ${chalk.green(messageLines[0])}`);
-        messageLines.slice(1).forEach(line => {
-            console.log(`${' '.repeat(type === 'participation' ? 9 : 8)}${chalk.green(line)}`);
-        });
-        console.log(chalk.gray(`${uniqueUsers} usuários diferentes enviaram ${count} mensagens em ${timeWindow}s`));
+        // Obtém configurações do BotManager
+        const config = BotManager.getCommandConfig(isKnownCommand);
+        const requiredUsers = config.minUsers;
+        const requiredMessages = isKnownCommand ? config.minUsers : config.minMessages;
+
+        // Monta a mensagem de status
+        const statusMessage = [
+            '\n' + chalk.gray('─'.repeat(80)),
+            `${icon} ${channelUrl} ${chalk.gray(`at ${timestamp}`)}`,
+            `${chalk.yellow.bold(type === 'participation' ? 'Command' : 'Pattern')}: ${chalk.green(messageLines[0])}`,
+            ...messageLines.slice(1).map(line => 
+                `${' '.repeat(type === 'participation' ? 9 : 8)}${chalk.green(line)}`
+            ),
+            chalk.gray(
+                `${uniqueUsers}/${requiredUsers} usuários diferentes enviaram ` +
+                `${count}/${requiredMessages} mensagens em ${timeWindow}s`
+            ),
+            isKnownCommand ? 
+                chalk.cyan('✓ Comando conhecido') : 
+                chalk.yellow(`ℹ Padrão detectado (requer ${requiredUsers} usuários e ${requiredMessages} mensagens)`)
+        ].join('\n');
+
+        console.log(statusMessage);
     }
 
     logParticipation(data) {
@@ -169,6 +207,21 @@ class DisplayManager {
         process.stdout.write('\x1Bc');
         this.headerShown = false; // Reset o estado do header
     }
+
+    // Adiciona método para limpar histórico antigo
+    cleanupDetectionHistory() {
+        const now = Date.now();
+        for (const [key, timestamp] of this.detectionHistory) {
+            if (now - timestamp > this.detectionCooldown) {
+                this.detectionHistory.delete(key);
+            }
+        }
+    }
 }
+
+// Adiciona limpeza periódica do histórico
+setInterval(() => {
+    DisplayManager.cleanupDetectionHistory();
+}, 60000); // Limpa a cada minuto
 
 module.exports = new DisplayManager(); 

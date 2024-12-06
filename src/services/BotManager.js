@@ -1,5 +1,7 @@
 const tmi = require('tmi.js');
 const { logger } = require('../logger');
+const fs = require('fs');
+const ini = require('ini');
 
 class BotManager {
     constructor() {
@@ -15,21 +17,88 @@ class BotManager {
             maxRetries: 3,
             retryDelay: 2000,
             detectionCooldown: 5 * 60 * 1000,      // 5 minutos
-            commonCommands: [                       // Lista de comandos conhecidos
-                '!enter',
-                '!join',
-                '!ticket',
-                '!sorteo',
-                '!raffle',
-                '!giveaway',
-                '!sorteio',
-                '!participar'
-            ],
             reconnectInterval: 5 * 60 * 1000       // Tenta reconectar a cada 5 minutos
         };
 
+        // Inicializa com valores padrão
+        this.commandsConfig = {
+            known: {
+                commands: [],
+                minUsers: 3,
+                timeWindow: 30000,
+                memoryCleanup: 300000 // 5 minutos
+            },
+            unknown: {
+                minUsers: 5,
+                minMessages: 5,
+                timeWindow: 30000,
+                memoryCleanup: 300000 // 5 minutos
+            }
+        };
+
+        this.loadConfig();
+
         // Inicia monitoramento de conexões
         setInterval(() => this.checkConnections(), this.config.reconnectInterval);
+
+        // Adiciona limpeza periódica usando as configurações
+        setInterval(() => {
+            const now = Date.now();
+            for (const [key, timestamp] of this.recentGiveaways) {
+                const [channel, command] = key.split(':');
+                const isKnown = this.isKnownCommand(command);
+                const config = this.getCommandConfig(isKnown);
+                
+                if (now - timestamp > config.memoryCleanup) {
+                    this.recentGiveaways.delete(key);
+                    logger.debug(`Limpando memória para ${key}`);
+                }
+            }
+        }, 60000); // Verifica a cada minuto
+    }
+
+    async loadConfig() {
+        try {
+            const configData = await fs.promises.readFile('./config.ini', 'utf8');
+            const config = ini.parse(configData);
+
+            // Carrega configurações de comandos conhecidos
+            if (config.KNOWN_COMMANDS) {
+                this.commandsConfig.known = {
+                    commands: config.KNOWN_COMMANDS.COMMANDS?.split(',').map(cmd => cmd.trim()) || [],
+                    minUsers: parseInt(config.KNOWN_COMMANDS.MIN_USERS) || 3,
+                    timeWindow: parseInt(config.KNOWN_COMMANDS.TIME_WINDOW) || 30000,
+                    memoryCleanup: parseInt(config.KNOWN_COMMANDS.MEMORY_CLEANUP) || 300000
+                };
+            }
+
+            // Carrega configurações de comandos desconhecidos
+            if (config.UNKNOWN_COMMANDS) {
+                this.commandsConfig.unknown = {
+                    minUsers: parseInt(config.UNKNOWN_COMMANDS.MIN_USERS) || 8,
+                    minMessages: parseInt(config.UNKNOWN_COMMANDS.MIN_MESSAGES) || 8,
+                    timeWindow: parseInt(config.UNKNOWN_COMMANDS.TIME_WINDOW) || 30000,
+                    memoryCleanup: parseInt(config.UNKNOWN_COMMANDS.MEMORY_CLEANUP) || 300000
+                };
+            }
+
+            logger.info('Configurações carregadas:', {
+                known: this.commandsConfig.known,
+                unknown: this.commandsConfig.unknown
+            });
+        } catch (error) {
+            logger.error('Erro ao carregar configurações:', error);
+        }
+    }
+
+    isKnownCommand(command) {
+        const isKnown = this.commandsConfig.known.commands.includes(command.toLowerCase());
+        logger.debug(`Verificando comando "${command}": ${isKnown ? 'conhecido' : 'desconhecido'}`);
+        return isKnown;
+    }
+
+    getCommandConfig(isKnown) {
+        return isKnown ? this.commandsConfig.known : this.commandsConfig.unknown;
     }
 
     hasParticipated(channel, command, botName) {
@@ -214,14 +283,14 @@ class BotManager {
         
         if (normalizedCommand.includes(' ')) return;
 
-        const isKnownCommand = this.config.commonCommands.includes(normalizedCommand);
+        const isKnownCommand = this.isKnownCommand(normalizedCommand);
+        const config = this.getCommandConfig(isKnownCommand);
         const key = `${channelName}:${normalizedCommand}`;
 
-        // SEMPRE participa de comandos conhecidos
-        // Para outros comandos, cooldown de apenas 3 minutos
+        // Verifica se já participou recentemente
         if (!isKnownCommand) {
             const lastParticipation = this.recentGiveaways.get(key);
-            if (lastParticipation && (Date.now() - lastParticipation) < 180000) { // 3 minutos
+            if (lastParticipation && (Date.now() - lastParticipation) < config.memoryCleanup) {
                 return;
             }
         }
@@ -229,12 +298,15 @@ class BotManager {
         // Registra participação
         this.recentGiveaways.set(key, Date.now());
 
-        // Log no console
+        // Log no console com informações mais detalhadas
         const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
-        console.log(chalk.magenta(
-            `🎯 🎯 🎯 🎯 🎯 [${new Date().toLocaleTimeString()}] ${channelLink} | ` +
-            `${isKnownCommand ? 'Comando conhecido' : 'Possível sorteio'} detectado: ${chalk.green(normalizedCommand)}\n`
-        ));
+        logger.info(`
+            Participando de sorteio:
+            Canal: ${channelName}
+            Comando: ${normalizedCommand}
+            Tipo: ${isKnownCommand ? 'Conhecido' : 'Desconhecido'}
+            Config: ${JSON.stringify(config)}
+        `);
 
         // Participa com todos os bots
         const allBots = [
@@ -349,7 +421,7 @@ class BotManager {
         const now = Date.now();
         const fiveMinutesAgo = now - (5 * 60 * 1000);
 
-        // Limpa detecções antigas (após 5 minutos)
+        // Limpa detecç��es antigas (após 5 minutos)
         for (const [key, timestamp] of this.commandDetections) {
             if (timestamp < fiveMinutesAgo) {
                 this.commandDetections.delete(key);
