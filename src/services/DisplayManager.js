@@ -130,13 +130,12 @@ class DisplayManager {
         global.console.log = (...args) => {
             const message = args.join(' ');
             
-            // Filtra mensagens de debug do Twitch
-            if (message.includes('error: No response from Twitch.')) {
-                return;
-            }
-
-            // Filtra mensagens de chat que não são relevantes
-            if (message.match(/\[\d+:\d+:\d+ [AP]M\]/)) {
+            // Filtra mensagens do curl e outros outputs indesejados
+            if (message.includes('% Total') || 
+                message.includes('Dload') || 
+                message.includes('Speed') ||
+                message.includes('Erro no listener:') ||
+                message.includes('error: No response from Twitch.')) {
                 return;
             }
 
@@ -166,6 +165,11 @@ class DisplayManager {
         global.console.error = (...args) => {
             logger.error(args.join(' '));
         };
+    }
+
+    clearScreen() {
+        process.stdout.write('\x1Bc');
+        this.headerShown = false; // Reset o estado do header
     }
 }
 

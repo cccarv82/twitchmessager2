@@ -115,15 +115,13 @@ class BotManager {
 
             const bot = new tmi.Client({
                 options: { 
-                    debug: true,  // Ativado para debug
-                    skipMembership: false,  // Desativado para melhor controle
+                    debug: false,  // Desativa debug
+                    skipMembership: true,
                     skipUpdatingEmotesets: true
                 },
                 connection: {
                     secure: true,
                     reconnect: true,
-                    maxReconnectAttempts: 10,
-                    maxReconnectInterval: 5000
                 },
                 identity: {
                     username: conta.nome,
@@ -131,11 +129,11 @@ class BotManager {
                 },
                 channels: conta.isListener ? canaisPermitidos : [],
                 logger: {
-                    info: (message) => logger.info(`[${conta.nome}] ${message}`),
-                    warn: (message) => logger.warn(`[${conta.nome}] ${message}`),
+                    info: () => {},  // Suprime logs info
+                    warn: () => {},  // Suprime logs warn
                     error: (message) => {
                         if (!message.includes('No response from Twitch')) {
-                            logger.error(`[${conta.nome}] ${message}`);
+                            logger.error(message);
                         }
                     }
                 }

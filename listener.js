@@ -701,8 +701,12 @@ async function main() {
 
         global.activeBots = bots;
 
-        // Agora sim mostra o display
+        // Limpa a tela e mostra o novo display
         DisplayManager.clearScreen();
+        
+        // Pequeno delay para garantir que tudo foi limpo
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         DisplayManager.showHeader();
         DisplayManager.showStatus({
             startTime: new Date(),
@@ -712,8 +716,11 @@ async function main() {
             gameName: currentConfig.nomeDoJogo || 'Not Set'
         });
 
-        logger.info('Sistema iniciado com sucesso');
+        // Configura o console para filtrar mensagens indesejadas
+        DisplayManager.setupConsole();
 
+        logger.info('Sistema iniciado com sucesso');
+        
         // Configura encerramento gracioso
         process.on('SIGINT', async () => {
             logger.info('\nFinalizando sistema...');

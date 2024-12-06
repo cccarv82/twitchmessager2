@@ -27,6 +27,8 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Sobrecarga de mensagens no console
 - Melhor formatação de mensagens relevantes
 - Removido log excessivo de mensagens do chat
+- Corrigida exibição do painel de monitoramento
+- Suprimidas mensagens de erro do curl
 
 ## [1.2.0] - 2024-03-20
 ### Adicionado
