@@ -10,6 +10,9 @@ class DisplayManager {
         this.headerShown = false;
         this.detectionHistory = new Map(); // Novo: histórico de detecções
         this.detectionCooldown = 5 * 60 * 1000; // 5 minutos em ms
+        this.activeParticipations = new Map();
+        this.participationHistory = new Map();
+        this.lastCleanup = Date.now();
     }
 
     showHeader() {
@@ -248,6 +251,139 @@ Total de bots: ${chalk.yellow(data.totalBots)}
 ────────────────────────────────────────────────────────────────────────────────
                 `);
                 break;
+        }
+    }
+
+    showParticipationStatus() {
+        const now = Date.now();
+        
+        // Cleanup old participations every 5 minutes
+        if (now - this.lastCleanup > 300000) {
+            this.cleanupParticipations();
+            this.lastCleanup = now;
+        }
+
+        // Força limpeza da tela antes de mostrar o status
+        console.log('\n');
+        
+        if (this.activeParticipations.size > 0) {
+            console.log(chalk.cyan('═══════════════ PARTICIPAÇÕES ATIVAS ═══════════════'));
+            
+            for (const [key, participation] of this.activeParticipations) {
+                const [channel, command] = key.split(':');
+                const progress = `${participation.completed}/${participation.total}`;
+                const timeElapsed = Math.floor((now - participation.startTime) / 1000);
+                
+                // Monta a mensagem de status
+                const statusLines = [
+                    '',
+                    `${chalk.cyan('Canal:')} ${chalk.yellow(channel)}`,
+                    `${chalk.cyan('Comando:')} ${chalk.green(command)}`,
+                    `${chalk.cyan('Progresso:')} ${chalk.blue(progress)} bots`,
+                    `${chalk.cyan('Tempo:')} ${chalk.gray(`${timeElapsed}s`)}`,
+                    `${chalk.cyan('Status:')} ${this.getStatusIcon(participation.status)} ${participation.status}`,
+                ];
+
+                // Se houver erros, adiciona à mensagem
+                if (participation.errors.length > 0) {
+                    statusLines.push(chalk.red('Erros:'));
+                    participation.errors.forEach(({ bot, error }) => {
+                        statusLines.push(chalk.red(`  • ${bot}: ${error}`));
+                    });
+                }
+
+                console.log(statusLines.join('\n'));
+                console.log(chalk.gray('─'.repeat(60)));
+            }
+        }
+    }
+
+    getStatusIcon(status) {
+        switch(status) {
+            case 'in_progress': return '🔄';
+            case 'completed': return '✅';
+            case 'error': return '❌';
+            default: return '⏳';
+        }
+    }
+
+    // Modifica o método trackParticipation para ser mais robusto
+    trackParticipation(data) {
+        try {
+            const { channel, command, type, bot, error, totalBots } = data;
+            const key = `${channel}:${command}`;
+
+            logger.debug(`[DisplayManager] Tracking participation: ${JSON.stringify(data)}`);
+
+            if (!this.activeParticipations) {
+                this.activeParticipations = new Map();
+            }
+
+            switch(type) {
+                case 'start':
+                    logger.debug(`[DisplayManager] Starting participation in ${channel} with ${totalBots} bots`);
+                    this.activeParticipations.set(key, {
+                        startTime: Date.now(),
+                        total: totalBots,
+                        completed: 0,
+                        status: 'in_progress',
+                        errors: []
+                    });
+                    break;
+
+                case 'success':
+                    logger.debug(`[DisplayManager] Bot ${bot} succeeded in ${channel}`);
+                    if (this.activeParticipations.has(key)) {
+                        const participation = this.activeParticipations.get(key);
+                        participation.completed++;
+                        
+                        if (participation.completed >= participation.total) {
+                            participation.status = 'completed';
+                            setTimeout(() => {
+                                if (this.activeParticipations.has(key)) {
+                                    const finalData = this.activeParticipations.get(key);
+                                    this.participationHistory.set(key, {
+                                        ...finalData,
+                                        endTime: Date.now()
+                                    });
+                                    this.activeParticipations.delete(key);
+                                }
+                            }, 30000);
+                        }
+                    }
+                    break;
+
+                case 'error':
+                    logger.debug(`[DisplayManager] Bot ${bot} failed in ${channel}: ${error}`);
+                    if (this.activeParticipations.has(key)) {
+                        const participation = this.activeParticipations.get(key);
+                        participation.errors.push({ bot, error });
+                        participation.status = participation.errors.length >= participation.total ? 'error' : 'in_progress';
+                    }
+                    break;
+            }
+
+            // Força atualização do display
+            this.showParticipationStatus();
+        } catch (error) {
+            logger.error(`[DisplayManager] Error tracking participation: ${error.message}`);
+        }
+    }
+
+    cleanupParticipations() {
+        const now = Date.now();
+        for (const [key, participation] of this.activeParticipations) {
+            // Remove participations older than 10 minutes
+            if (now - participation.startTime > 600000) {
+                this.activeParticipations.delete(key);
+            }
+        }
+        
+        // Keep only last 100 historical participations
+        if (this.participationHistory.size > 100) {
+            const entries = Array.from(this.participationHistory.entries());
+            const sortedEntries = entries.sort((a, b) => b[1].endTime - a[1].endTime);
+            this.participationHistory = new Map(sortedEntries.slice(0, 100));
         }
     }
 }

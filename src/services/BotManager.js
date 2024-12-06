@@ -4,6 +4,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const ini = require('ini');
 const chalk = require('chalk');
+const DisplayManager = require('./DisplayManager');
 
 class BotManager {
     constructor() {
@@ -248,10 +249,31 @@ Participants: ${Array.from(this.participants.keys()).join(', ')}
         this.recentParticipations.set(key, Date.now());
     }
 
+    isValidCommand(command) {
+        // Remove espaços extras e normaliza
+        const normalizedCommand = command.trim().toLowerCase();
+        
+        // Verifica se é uma única palavra
+        if (normalizedCommand.includes(' ')) {
+            return false;
+        }
+
+        // Permite comandos com ou sem ! no início
+        // E permite apenas letras, números e alguns caracteres especiais
+        const validPattern = /^!?[\w\d\-_]+$/;
+        return validPattern.test(normalizedCommand);
+    }
+
     async participateInGiveaway(channel, command, detectedBy) {
         const channelName = channel.replace('#', '');
         const normalizedCommand = command.toLowerCase().trim();
         
+        // Adiciona validação do comando
+        if (!this.isValidCommand(normalizedCommand)) {
+            await this.debugLog(`❌ Comando inválido ignorado: ${normalizedCommand}`);
+            return;
+        }
+
         await this.debugLog(`\n=== NOVO SORTEIO DETECTADO ===`);
         await this.debugLog(`Canal: ${channelName}`);
         await this.debugLog(`Comando: ${normalizedCommand}`);
@@ -280,67 +302,65 @@ Participants: ${Array.from(this.participants.keys()).join(', ')}
         this.recentParticipations.set(key, Date.now());
         await this.debugLog(`Participação registrada para ${key}`);
 
-        // Notifica DisplayManager sobre início da participação
-        DisplayManager.logParticipation({
-            channel: channelName,
-            command: normalizedCommand,
-            totalBots: listeners.length + participants.length,
-            type: 'start'
-        });
+        const totalBots = listeners.length + participants.length;
+        
+        try {
+            // Registra início da participação
+            await this.logParticipation({
+                channel: channelName,
+                command: normalizedCommand,
+                type: 'start',
+                totalBots
+            });
 
-        // Participa com cada bot
-        const allBots = [...listeners, ...participants];
-        for (const { bot, conta } of allBots) {
-            try {
-                if (!conta.isListener) {
-                    await this.debugLog(`Entrando no canal ${channelName} com ${conta.nome}`);
-                    await bot.join(`#${channelName}`);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+            // Participa com cada bot
+            const allBots = [...listeners, ...participants];
+            for (const { bot, conta } of allBots) {
+                try {
+                    if (!conta.isListener) {
+                        await this.debugLog(`Entrando no canal ${channelName} com ${conta.nome}`);
+                        await bot.join(`#${channelName}`);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+
+                    await this.debugLog(`Enviando comando com ${conta.nome}`);
+                    await bot.say(`#${channelName}`, normalizedCommand);
+                    await this.debugLog(`✓ ${conta.nome} participou com sucesso`);
+
+                    // Registra sucesso da participação
+                    await this.logParticipation({
+                        channel: channelName,
+                        command: normalizedCommand,
+                        type: 'success',
+                        bot: conta.nome
+                    });
+
+                    if (!conta.isListener) {
+                        setTimeout(async () => {
+                            try {
+                                await bot.part(`#${channelName}`);
+                                await this.debugLog(`✓ ${conta.nome} saiu do canal`);
+                            } catch (error) {
+                                await this.debugLog(`❌ Erro ao sair: ${error.message}`);
+                            }
+                        }, 5000);
+                    }
+                } catch (error) {
+                    await this.debugLog(`❌ Erro com ${conta.nome}: ${error.message}`);
+                    
+                    // Registra erro da participação
+                    await this.logParticipation({
+                        channel: channelName,
+                        command: normalizedCommand,
+                        type: 'error',
+                        bot: conta.nome,
+                        error: error.message
+                    });
                 }
-
-                await this.debugLog(`Enviando comando com ${conta.nome}`);
-                await bot.say(`#${channelName}`, normalizedCommand);
-                await this.debugLog(`✓ ${conta.nome} participou com sucesso`);
-
-                // Notifica DisplayManager sobre participação individual
-                DisplayManager.logParticipation({
-                    channel: channelName,
-                    command: normalizedCommand,
-                    bot: conta.nome,
-                    type: 'success'
-                });
-
-                if (!conta.isListener) {
-                    setTimeout(async () => {
-                        try {
-                            await bot.part(`#${channelName}`);
-                            await this.debugLog(`✓ ${conta.nome} saiu do canal`);
-                        } catch (error) {
-                            await this.debugLog(`❌ Erro ao sair: ${error.message}`);
-                        }
-                    }, 5000);
-                }
-            } catch (error) {
-                await this.debugLog(`❌ Erro com ${conta.nome}: ${error.message}`);
-                
-                // Notifica DisplayManager sobre erro
-                DisplayManager.logParticipation({
-                    channel: channelName,
-                    command: normalizedCommand,
-                    bot: conta.nome,
-                    type: 'error',
-                    error: error.message
-                });
             }
+        } catch (error) {
+            logger.error(`Erro ao gerenciar participação: ${error.message}`);
         }
-
-        // Notifica DisplayManager sobre fim da participação
-        DisplayManager.logParticipation({
-            channel: channelName,
-            command: normalizedCommand,
-            totalBots: allBots.length,
-            type: 'complete'
-        });
 
         await this.debugLog(`=== FIM DA PARTICIPAÇÃO ===\n`);
     }
@@ -440,6 +460,59 @@ Participants: ${Array.from(this.participants.keys()).join(', ')}
             await fs.appendFile('logs/debug.log', logMessage);
         } catch (error) {
             console.error('Erro ao salvar log:', error);
+        }
+    }
+
+    async logParticipation(data) {
+        const { channel, command, type, bot, error } = data;
+        
+        // Cria timestamp no horário de Brasília (UTC-3)
+        const date = new Date();
+        const brasiliaTime = new Date(date.getTime() - (3 * 60 * 60 * 1000));
+        const timestamp = brasiliaTime.toISOString().replace('Z', '-03:00');
+
+        try {
+            // Lê o arquivo existente ou cria um novo array
+            let participations = [];
+            try {
+                const content = await fs.readFile('participations.json', 'utf8');
+                participations = JSON.parse(content);
+            } catch (err) {
+                // Arquivo não existe ainda, começará com array vazio
+            }
+
+            // Cria o objeto de participação
+            const participation = {
+                timestamp,
+                channel,
+                command,
+                bot: bot || null,
+                success: type === 'success',
+                error: error || null
+            };
+
+            // Para eventos de início, adiciona informação total de bots
+            if (type === 'start') {
+                participation.totalBots = data.totalBots;
+                participation.type = 'start';
+            }
+
+            // Adiciona nova participação ao início do array
+            participations.unshift(participation);
+
+            // Mantém apenas as últimas 1000 participações
+            if (participations.length > 1000) {
+                participations = participations.slice(0, 1000);
+            }
+
+            // Salva o arquivo
+            await fs.writeFile(
+                'participations.json', 
+                JSON.stringify(participations, null, 2)
+            );
+
+        } catch (error) {
+            logger.error('Erro ao salvar participação:', error);
         }
     }
 }

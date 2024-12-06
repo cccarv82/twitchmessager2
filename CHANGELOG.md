@@ -4,6 +4,19 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [1.3.2] - 2024-03-21
+### Adicionado
+- Monitor de participações em tempo real
+- Status visual de progresso das participações
+- Histórico de participações recentes
+- Indicadores de sucesso/erro por bot
+
+### Melhorado
+- Interface do painel de monitoramento
+- Feedback visual de participações
+- Gestão de estado das participações
+- Limpeza automática de dados antigos
+
 ## [1.3.1] - 2024-03-21
 ### Adicionado
 - Nova implementação de participação em sorteios
