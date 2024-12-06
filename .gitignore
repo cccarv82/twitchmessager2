@@ -8,6 +8,7 @@ log/
 contas*
 whispers.json
 features.txt
+prompt-helper.md
 # Plugins data
 plugins/*/data/*
 !plugins/*/data/.gitkeep

@@ -16,51 +16,13 @@ let isGrabbing = false; // Variável de bloqueio global
 app.use(logMiddleware); // Usando o middleware de log
 
 app.get("/start-grabber/:gameName", async (req, res) => {
-  let responseSent = false;
-  if (isGrabbing) {
-    res.status(429).json({
-      code: 429,
-      message:
-        "A ação já está em andamento. Por favor, tente novamente mais tarde.",
-    });
-    req.logObject.response.message =
-      "A ação já está em andamento. Por favor, tente novamente mais tarde.";
-    responseSent = true;
-  }
-
-  if (!responseSent) {
-    try {
-      logger.info("Coleta de canais iniciada");
-      isGrabbing = true;
-      const result = await grabber.main(req.params.gameName);
-      logger.info("Coleta de canais concluída com sucesso");
-      res.json({
-        code: 200,
-        message: 'Arquivo "canais.json" atualizado com sucesso!',
-        nomeDoJogo: result.nomeDoJogo,
-        totalCanais: result.totalCanais,
-        canaisSelecionados: result.canais.length,
-        canais: result.canais,
-      });
-      req.logObject.response.message =
-        'Arquivo "canais.json" atualizado com sucesso!';
-      req.logObject.response.nomeDoJogo = result.nomeDoJogo;
-      req.logObject.response.totalCanais = result.totalCanais;
-      req.logObject.response.canaisSelecionados = result.canais.length;
-      req.logObject.response.canais = result.canais;
-    } catch (error) {
-      logger.error("Erro ao obter o token de acesso ou o ID do jogo:", error);
-      res.status(500).json({
-        code: 500,
-        message: "Erro ao obter o token de acesso ou o ID do jogo",
-        error: error.message,
-      });
-      req.logObject.response.message =
-        "Erro ao obter o token de acesso ou o ID do jogo";
-      req.logObject.response.error = error.message;
-    } finally {
-      isGrabbing = false;
-    }
+  try {
+    const gameName = req.params.gameName;
+    const result = await grabber.main(gameName);
+    res.json(result);
+  } catch (error) {
+    logger.error("Erro ao executar grabber:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 

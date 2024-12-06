@@ -5,6 +5,7 @@ const chalk = require("chalk");
 const { exec } = require('child_process');
 const PluginManager = require('./src/plugins/PluginManager');
 const path = require('path');
+const { logger } = require('./src/logger');
 
 // Estrutura para armazenar mensagens por canal
 const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
@@ -445,7 +446,7 @@ async function connectBot(conta, canais) {
 
         // Log de sucesso
         if (conta.isListener) {
-            console.log(chalk.green(`����� Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
+            console.log(chalk.green(` Bot ${chalk.yellow(conta.nome)} conectado a ${canais.length} canais`));
         } else {
             console.log(chalk.green(`✓ Bot ${chalk.yellow(conta.nome)} pronto para participações`));
         }
@@ -511,38 +512,45 @@ async function setupBotEvents(bot, conta, canais) {
             // Se parece ser um comando de participação
             if (pattern.isParticipationCommand) {
                 const command = pattern.message.trim();
-                if (conta.isListener) {
-                    // Se for o listener, coordena a participação de todos
-                    const channelName = channel.replace('#', '');
-                    for (const participantBot of global.activeBots) {
-                        try {
-                            // Se não for o listener, entra no canal, participa e depois sai
-                            const participantConta = contas.find(c => c.nome === participantBot.getUsername());
-                            if (!participantConta.isListener) {
-                                // Primeiro entra no canal
-                                if (!participantBot.getChannels().includes(channel)) {
-                                    await participantBot.join(channel);
-                                    // Aguarda um momento para garantir a conexão
-                                    await new Promise(resolve => setTimeout(resolve, 1000));
-                                }
-                                // Depois participa
-                                await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
-                                
-                                // Sai do canal após participar
-                                setTimeout(async () => {
-                                    try {
-                                        await participantBot.part(channel);
-                                    } catch (error) {
-                                        console.error(`Erro ao sair do canal ${channel}:`, error);
-                                    }
-                                }, 5000);
-                            } else {
-                                // Se for o listener, apenas participa
-                                await participateInGiveaway(participantBot, channel, command, participantConta, conta.isListener);
+                
+                // Verifica se temos bots ativos
+                if (!global.activeBots || !Array.isArray(global.activeBots)) {
+                    logger.warn('Nenhum bot ativo disponível para participação');
+                    return;
+                }
+
+                // Itera sobre os bots participantes de forma segura
+                for (const participantBot of global.activeBots) {
+                    try {
+                        const botUsername = participantBot.getUsername();
+                        const botConta = contas.find(c => c.nome === botUsername);
+                        if (!botConta) continue;
+
+                        // Se não for o listener, primeiro entra no canal
+                        if (!botConta.isListener) {
+                            if (!participantBot.getChannels().includes(channel)) {
+                                await participantBot.join(channel);
+                                await new Promise(resolve => setTimeout(resolve, 1000));
                             }
-                        } catch (error) {
-                            console.error(`Erro ao participar com ${participantBot.getUsername()}:`, error);
                         }
+
+                        // Participa
+                        await participateInGiveaway(participantBot, channel, command, botConta, botConta.isListener);
+
+                        // Se não for listener, programa para sair do canal
+                        if (!botConta.isListener) {
+                            setTimeout(async () => {
+                                try {
+                                    await participantBot.part(channel);
+                                    logger.info(`Bot ${botUsername} saiu do canal ${channel}`);
+                                } catch (error) {
+                                    logger.error(`Erro ao sair do canal ${channel}:`, error);
+                                }
+                            }, 5000);
+                        }
+
+                    } catch (error) {
+                        logger.error(`Erro ao participar com bot:`, error);
                     }
                 }
             }

@@ -17,7 +17,7 @@
     "twitch": "^4.6.7",
     "twitch-auth": "^4.6.7",
     "twitch-js": "^2.0.0-beta.45",
-    "winston": "^3.11.0"
+    "winston": "^3.17.0"
   },
   "scripts": {
     "setup-plugins": "node scripts/setup-plugins.js && node scripts/create-plugin-dirs.js",

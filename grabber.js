@@ -1,132 +1,183 @@
 const axios = require("axios");
 const fs = require("fs");
 const ini = require("ini");
+const StreamScanner = require('./src/services/StreamScanner');
+const { logger } = require('./src/logger');
+const path = require('path');
+const ConfigManager = require('./src/services/ConfigManager');
 
-function getConfig(gameName) {
-  const config = ini.parse(fs.readFileSync("./config.ini", "utf-8"));
-  return {
-    clientId: config.CLIENT.ID,
-    clientSecret: config.CLIENT.SECRET,
-    nomeDoJogo: gameName || config.GAME.NAME,
-    palavrasChave: [
-      "Giveaway",
-      "key",
-      "!Giveaway",
-      "!pirate",
-      "!key",
-      "sorteio",
-      "LaDDy",
-    ],
-  };
+// Singleton para gerenciar plugins
+let pluginManager = null;
+
+function getPluginManager() {
+    if (!pluginManager) {
+        const PluginManager = require('./src/plugins/PluginManager');
+        pluginManager = new PluginManager();
+        // Carrega plugins se ainda não foram carregados
+        if (!pluginManager.plugins || pluginManager.plugins.size === 0) {
+            logger.info('Carregando plugins para o scanner...');
+            pluginManager.loadPlugins();
+        }
+    }
+    return pluginManager;
+}
+
+async function getConfig(gameName) {
+    const config = await ConfigManager.load();
+    return {
+        clientId: config.CLIENT.ID,
+        clientSecret: config.CLIENT.SECRET,
+        nomeDoJogo: gameName || config.GAME.NAME,
+        palavrasChave: config.KEYWORDS.PARTICIPATION.split(','),
+    };
 }
 
 function filterChannels(stream, palavrasChave) {
-  const titulo = stream.title.toLowerCase();
-  return palavrasChave.some((palavraChave) =>
-    titulo.includes(palavraChave.toLowerCase())
-  );
+    const titulo = stream.title.toLowerCase();
+    return palavrasChave.some((palavraChave) =>
+        titulo.includes(palavraChave.toLowerCase())
+    );
 }
 
 async function getAccessToken(gameName) {
-  const config = getConfig(gameName);
-  const response = await axios({
-    method: "POST",
-    url: `https://id.twitch.tv/oauth2/token?client_id=${config.clientId}&client_secret=${config.clientSecret}&grant_type=client_credentials`,
-  });
+    const config = await getConfig(gameName);
+    const response = await axios({
+        method: "POST",
+        url: `https://id.twitch.tv/oauth2/token?client_id=${config.clientId}&client_secret=${config.clientSecret}&grant_type=client_credentials`,
+    });
 
-  return response.data.access_token;
+    return response.data.access_token;
 }
 
 async function getGameId(accessToken, gameName) {
-  const config = getConfig(gameName);
-  const gameResponse = await axios({
-    method: "GET",
-    url: `https://api.twitch.tv/helix/games?name=${config.nomeDoJogo}`,
-    headers: {
-      "Client-ID": config.clientId,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+    const config = await getConfig(gameName);
+    const gameResponse = await axios({
+        method: "GET",
+        url: `https://api.twitch.tv/helix/games?name=${config.nomeDoJogo}`,
+        headers: {
+            "Client-ID": config.clientId,
+            Authorization: `Bearer ${accessToken}`,
+        },
+    });
 
-  return gameResponse.data.data[0].id;
+    return gameResponse.data.data[0].id;
 }
 
-async function getStreams(
-  gameId,
-  accessToken,
-  gameName,
-  cursor,
-  totalCanais = 0
-) {
-  const config = getConfig(gameName);
-  let url = `https://api.twitch.tv/helix/streams?game_id=${gameId}`;
-  if (cursor) {
-    url += `&after=${cursor}`;
-  }
+async function getStreams(gameId, accessToken, gameName) {
+    const config = await getConfig(gameName);
+    let url = `https://api.twitch.tv/helix/streams?game_id=${gameId}&first=100`;
+    let totalCanais = 0;
+    let allCanais = [];
+    let hasNextPage = true;
+    let cursor = null;
 
-  const response = await axios({
-    method: "GET",
-    url: url,
-    headers: {
-      "Client-ID": config.clientId,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+    logger.info(`Iniciando busca de streams para ${gameName}`);
 
-  totalCanais += response.data.data.length;
-  const canais = [];
+    while (hasNextPage) {
+        try {
+            const currentUrl = cursor ? `${url}&after=${cursor}` : url;
+            const response = await axios({
+                method: "GET",
+                url: currentUrl,
+                headers: {
+                    "Client-ID": config.clientId,
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
 
-  response.data.data.forEach((stream) => {
-    if (filterChannels(stream, config.palavrasChave)) {
-      canais.push(stream.user_name);
+            totalCanais += response.data.data.length;
+            
+            // Filtra canais com palavras-chave
+            const canaisFiltrados = response.data.data.filter(stream => 
+                filterChannels(stream, config.palavrasChave)
+            ).map(stream => stream.user_login);
+
+            allCanais = [...allCanais, ...canaisFiltrados];
+
+            // Verifica se tem próxima página
+            cursor = response.data.pagination?.cursor;
+            hasNextPage = !!cursor;
+
+            // Notifica progresso
+            const pluginManager = getPluginManager();
+            await pluginManager.emit('onScanProgress', {
+                processed: totalCanais,
+                found: allCanais.length,
+                total: totalCanais
+            });
+
+            // Rate limiting
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+        } catch (error) {
+            logger.error('Erro ao buscar lote de streams:', error);
+            throw error;
+        }
     }
-  });
 
-  if (response.data.pagination && response.data.pagination.cursor) {
-    const nextPageResult = await getStreams(
-      gameId,
-      accessToken,
-      gameName,
-      response.data.pagination.cursor,
-      totalCanais
-    );
+    // Filtra canais usando plugins de blacklist se disponível
+    const blacklistPlugin = pluginManager.plugins.get('Blacklist');
+    if (blacklistPlugin) {
+        allCanais = allCanais.filter(channel => 
+            !blacklistPlugin.isChannelBlacklisted(channel)
+        );
+    }
+
+    logger.info(`Busca concluída: ${allCanais.length} canais encontrados de ${totalCanais} streams`);
+
     return {
-      totalCanais: nextPageResult.totalCanais,
-      canais: canais.concat(nextPageResult.canais),
+        totalCanais,
+        canais: allCanais,
+        canaisSelecionados: allCanais.length
     };
-  } else {
-    return {
-      totalCanais,
-      canais,
-    };
-  }
 }
 
 function writeChannelsToFile(canais) {
-  fs.writeFileSync("canais.json", JSON.stringify(canais, null, 2));
+    try {
+        fs.writeFileSync("canais.json", JSON.stringify(canais, null, 2));
+        logger.info(`${canais.length} canais salvos em canais.json`);
+    } catch (error) {
+        logger.error('Erro ao salvar canais:', error);
+        throw error;
+    }
 }
 
 async function main(gameName) {
-  try {
-    const accessToken = await getAccessToken(gameName);
-    const gameId = await getGameId(accessToken, gameName);
-    const { canais, totalCanais } = await getStreams(
-      gameId,
-      accessToken,
-      gameName
-    );
+    try {
+        // Se recebeu um novo nome de jogo, atualiza no config
+        if (gameName) {
+            await ConfigManager.setGame(gameName);
+        } else {
+            // Se não recebeu, usa o do config
+            gameName = await ConfigManager.getGame();
+            if (!gameName) {
+                throw new Error('Nenhum jogo configurado');
+            }
+        }
 
-    writeChannelsToFile(canais);
+        logger.info(`Iniciando scan para ${gameName}`);
+        
+        const accessToken = await getAccessToken(gameName);
+        const gameId = await getGameId(accessToken, gameName);
+        const { canais, totalCanais, canaisSelecionados } = await getStreams(
+            gameId,
+            accessToken,
+            gameName
+        );
 
-    return {
-      nomeDoJogo: getConfig(gameName).nomeDoJogo,
-      totalCanais,
-      canais,
-    };
-  } catch (error) {
-    console.error("Erro ao obter o token de acesso ou o ID do jogo:", error);
-    throw error;
-  }
+        // Salva os canais filtrados
+        writeChannelsToFile(canais);
+
+        return {
+            nomeDoJogo: await getConfig(gameName).nomeDoJogo,
+            totalCanais,
+            canais,
+            canaisSelecionados
+        };
+    } catch (error) {
+        logger.error("Erro ao obter canais:", error);
+        throw error;
+    }
 }
 
 module.exports = { getAccessToken, getGameId, getStreams, main };
