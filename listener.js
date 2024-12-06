@@ -7,12 +7,17 @@ const PluginManager = require('./src/plugins/PluginManager');
 const path = require('path');
 const { logger } = require('./src/logger');
 const DisplayManager = require('./src/services/DisplayManager');
+const BotManager = require('./src/services/BotManager');
+const ChatAnalyzer = require('./src/services/ChatAnalyzer');
 
 // Estrutura para armazenar mensagens por canal
 const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
 
 // Estrutura para controlar participações por canal
 const participationHistory = new Map(); // Canal -> Map<conta, Set<comando>>
+
+// Estrutura única para tracking de comandos
+const channelCommands = new Map(); // Canal -> Map<comando, Set<username>>
 
 // Lê configurações do arquivo config.ini
 async function getConfig() {
@@ -240,15 +245,41 @@ function checkWinnerOrMention(message, usernames, messageUser, channel, currentB
 
 // Nova função para detectar comandos de participação
 function detectParticipationCommand(message) {
-  const messageLower = message.toLowerCase();
-  
-  for (const pattern of PARTICIPATION_PATTERNS) {
-    if (messageLower.includes(pattern.trigger.toLowerCase())) {
-      return pattern.command;
-    }
-  }
+    // Normaliza a mensagem
+    const normalizedMsg = message.toLowerCase().trim();
+    
+    // Lista de comandos conhecidos
+    const knownCommands = [
+        '!enter',
+        '!join',
+        '!ticket',
+        '!sorteo',
+        '!raffle',
+        '!giveaway',
+        '!sorteio',
+        '!participar'
+    ];
 
-  return null;
+    // Se é um comando conhecido, retorna imediatamente
+    if (knownCommands.includes(normalizedMsg)) {
+        logger.debug(`Comando conhecido detectado: ${normalizedMsg}`);
+        return normalizedMsg;
+    }
+
+    // Se começa com !, analisa o padrão de uso
+    if (normalizedMsg.startsWith('!')) {
+        // Verifica se é um comando sendo usado por múltiplos usuários
+        const channel = message.channel;
+        const recentMessages = global.messagePatterns.get(channel) || new Map();
+        const commandCount = recentMessages.get(normalizedMsg) || 0;
+
+        if (commandCount >= 3) { // Se 3 ou mais pessoas usaram o mesmo comando
+            logger.debug(`Comando popular detectado: ${normalizedMsg} (usado ${commandCount} vezes)`);
+            return normalizedMsg;
+        }
+    }
+
+    return null;
 }
 
 // Nova função para verificar se já participou
@@ -477,102 +508,69 @@ async function setupBotEvents(bot, conta, canais) {
     bot.on("message", async (channel, tags, message, self) => {
         if (self) return;
         
-        const messageLower = message.toLowerCase();
         const channelName = channel.replace('#', '');
-        
-        // Verifica blacklist antes de processar a mensagem
-        const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
-        if (blacklistPlugin) {
-            const isBlacklisted = await blacklistPlugin.onMessage(channel, message);
-            if (isBlacklisted) {
-                if (conta.isListener) {
-                    console.log(chalk.red(`🚫 Mensagem bloqueada em ${channelName}: ${message}`));
-                }
+        const messageLower = message.toLowerCase().trim();
+
+        // Log de todas as mensagens
+        console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] ${chalk.cyan(channelName)} | ${chalk.yellow(tags.username)}: ${message}`));
+
+        try {
+            // 1. Comandos conhecidos - participação imediata
+            if (BotManager.config.commonCommands.includes(messageLower)) {
+                logger.info(`Comando conhecido detectado em ${channelName}: ${messageLower}`);
+                await BotManager.participateInGiveaway(channel, messageLower, conta.nome);
                 return;
             }
-        }
 
-        // Emite evento de mensagem para plugins
-        await global.pluginManager.emit('onMessage', channelName, message);
-        
-        // Detecta padrões de mensagens
-        const pattern = detectMessagePattern(channel, messageLower);
-        if (pattern) {
-            DisplayManager.logPatternDetection({
-                channel: channelName,
-                message: pattern.message,
-                count: pattern.count,
-                timeWindow: pattern.timeWindow,
-                type: pattern.isParticipationCommand ? 'participation' : 'pattern'
-            });
+            // 2. Detecção de novos comandos
+            if (messageLower.startsWith('!')) {
+                if (messageLower.includes(' ')) return;
 
-            // Se parece ser um comando de participação
-            if (pattern.isParticipationCommand) {
-                const command = pattern.message.trim();
-                
-                // Verifica se temos bots ativos
-                if (!global.activeBots || !Array.isArray(global.activeBots)) {
-                    logger.warn('Nenhum bot ativo disponível para participação');
-                    return;
+                // Inicializa tracking do canal
+                if (!channelCommands.has(channelName)) {
+                    channelCommands.set(channelName, new Map());
                 }
 
-                // Itera sobre os bots participantes de forma segura
-                for (const participantBot of global.activeBots) {
-                    try {
-                        const botUsername = participantBot.getUsername();
-                        const botConta = contas.find(c => c.nome === botUsername);
-                        if (!botConta) continue;
+                const commands = channelCommands.get(channelName);
+                
+                // Inicializa tracking do comando
+                if (!commands.has(messageLower)) {
+                    commands.set(messageLower, {
+                        users: new Set(),
+                        count: 0,
+                        firstSeen: Date.now()
+                    });
+                }
 
-                        // Se não for o listener, primeiro entra no canal
-                        if (!botConta.isListener) {
-                            if (!participantBot.getChannels().includes(channel)) {
-                                await participantBot.join(channel);
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                            }
-                        }
+                const cmdData = commands.get(messageLower);
+                cmdData.users.add(tags.username);
+                cmdData.count++;
 
-                        // Participa
-                        await participateInGiveaway(participantBot, channel, command, botConta, botConta.isListener);
+                // Log para debug
+                logger.debug(`
+                    Canal: ${channelName}
+                    Comando: ${messageLower}
+                    Usuários únicos: ${cmdData.users.size}
+                    Total usos: ${cmdData.count}
+                `);
 
-                        // Se não for listener, programa para sair do canal
-                        if (!botConta.isListener) {
-                            setTimeout(async () => {
-                                try {
-                                    await participantBot.part(channel);
-                                    logger.info(`Bot ${botUsername} saiu do canal ${channel}`);
-                                } catch (error) {
-                                    logger.error(`Erro ao sair do canal ${channel}:`, error);
-                                }
-                            }, 5000);
-                        }
+                // DETECÇÃO: 3+ usuários diferentes OU 5+ usos em 30 segundos
+                if (cmdData.users.size >= 3 || cmdData.count >= 5) {
+                    const timeSinceFirst = Date.now() - cmdData.firstSeen;
+                    if (timeSinceFirst <= 30000) { // 30 segundos
+                        logger.info(`Sorteio detectado em ${channelName}:
+                            Comando: ${messageLower}
+                            Usuários: ${Array.from(cmdData.users).join(', ')}
+                            Total usos: ${cmdData.count}
+                        `);
 
-                    } catch (error) {
-                        logger.error(`Erro ao participar com bot:`, error);
+                        await BotManager.participateInGiveaway(channel, messageLower, conta.nome);
+                        commands.delete(messageLower);
                     }
                 }
             }
-        }
-
-        // Verifica se é uma mensagem que indica como participar
-        const participationCommand = detectParticipationCommand(message);
-        if (participationCommand) {
-            // Só mostra mensagem no console se for listener
-            if (conta.isListener) {
-                const channelName = channel.replace('#', '');
-                const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
-                console.log(chalk.magenta(
-                    `🎯 🎯 🎯 🎯 🎯 [${new Date().toLocaleTimeString()}] ${channelLink} | ` +
-                    `Comando de participação detectado: ${chalk.green(participationCommand)}\n`
-                ));
-            }
-
-            await participateWithAllAccounts(bot, channel, participationCommand, conta.isListener);
-        }
-
-        // Verifica se alguém ganhou ou foi mencionado
-        const winnerOrMention = checkWinnerOrMention(message, usernames, tags.username, channel, bot);
-        if (winnerOrMention) {
-            console.log(winnerOrMention.message);
+        } catch (error) {
+            logger.error(`Erro ao processar mensagem em ${channelName}:`, error);
         }
     });
 
@@ -630,47 +628,25 @@ global.pluginManager = new PluginManager();
 // Modifique a função main para inicializar as configurações
 async function main() {
     try {
+        logger.info('Iniciando sistema do listener...');
+        
         // Inicializa configurações primeiro
         await initializeConfig();
         const currentConfig = await getConfig();
 
         // Carrega plugins primeiro
+        logger.info('Carregando plugins...');
         await global.pluginManager.loadPlugins();
         
         // Carrega canais e contas
+        logger.info('Carregando configurações...');
         const canaisData = await fs.readFile("canais.json", "utf8");
         const canais = JSON.parse(canaisData);
         const contasData = await fs.readFile("contas.json", "utf8");
         const contas = JSON.parse(contasData);
 
-        // Configura e conecta bots
-        const bots = [];
-        for (const conta of contas) {
-            const bot = await connectBot(conta, canais);
-            if (bot) {
-                await setupBotEvents(bot, conta, canais);
-                bots.push(bot);
-            }
-        }
-
-        if (bots.length === 0) {
-            throw new Error('Nenhum bot pôde ser iniciado');
-        }
-
-        global.activeBots = bots;
-
-        // Só agora mostra o display
-        DisplayManager.clearScreen();
-        DisplayManager.showHeader();
-        DisplayManager.showStatus({
-            startTime: new Date(),
-            pluginsCount: global.pluginManager.plugins.size,
-            channelsCount: canais.length,
-            nextUpdate: new Date(Date.now() + 30 * 60000),
-            gameName: currentConfig.nomeDoJogo || 'Not Set'
-        });
-
-        // Verifica tokens
+        // Verifica tokens primeiro
+        logger.info('Verificando tokens...');
         try {
             const { stdout, stderr } = await new Promise((resolve, reject) => {
                 exec('node oauth2.js', (error, stdout, stderr) => {
@@ -705,21 +681,55 @@ async function main() {
             throw error;
         }
 
+        // Configura e conecta bots
+        logger.info('Conectando bots...');
+        const bots = [];
+        for (const conta of contas) {
+            const bot = await connectBot(conta, canais);
+            if (bot) {
+                await setupBotEvents(bot, conta, canais);
+                bots.push(bot);
+            }
+        }
+
+        if (bots.length === 0) {
+            throw new Error('Nenhum bot pôde ser iniciado');
+        }
+
+        global.activeBots = bots;
+
+        // Agora sim mostra o display
+        DisplayManager.clearScreen();
+        DisplayManager.showHeader();
+        DisplayManager.showStatus({
+            startTime: new Date(),
+            pluginsCount: global.pluginManager.plugins.size,
+            channelsCount: canais.length,
+            nextUpdate: new Date(Date.now() + 30 * 60000),
+            gameName: currentConfig.nomeDoJogo || 'Not Set'
+        });
+
+        logger.info('Sistema iniciado com sucesso');
+
         // Configura encerramento gracioso
         process.on('SIGINT', async () => {
-            logger.info('\nFinalizando monitoramento...');
+            logger.info('\nFinalizando sistema...');
             for (const bot of bots) {
                 try {
                     await bot.disconnect();
+                    logger.info(`Bot ${bot.getUsername()} desconectado`);
                 } catch (error) {
-                    // Ignora erros de desconexão
+                    logger.error(`Erro ao desconectar bot:`, error);
                 }
             }
-            process.exit();
+            process.exit(0);
         });
 
+        // Notifica que está pronto
+        process.send?.({ type: 'ready' });
+        
     } catch (error) {
-        logger.error("Erro ao inicializar:", error);
+        logger.error("Erro fatal ao inicializar listener:", error);
         process.exit(1);
     }
 }
@@ -738,13 +748,13 @@ async function updateChannels(isListener) {
 
         if (!gameName) {
             if (isListener) {
-                console.log(chalk.red('\nErro: Não foi possível atualizar canais - jogo não configurado'));
+                console.log(chalk.red('\nErro: Não foi possível atualizar canais - jogo no configurado'));
             }
             return;
         }
 
         if (isListener) {
-            console.log(chalk.cyan('\n🔄 Atualizando lista de canais...'));
+            console.log(chalk.cyan('\n Atualizando lista de canais...'));
         }
         
         const url = `http://localhost:3000/start-grabber/${encodeURIComponent(gameName)}`;
@@ -823,4 +833,68 @@ async function updateChannels(isListener) {
     }
 }
 
-main();
+// No início do arquivo
+process.on('uncaughtException', (error) => {
+    logger.error('Erro não capturado no listener:', error);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Promise não tratada rejeitada no listener:', reason);
+});
+
+// Executa
+logger.info('Iniciando processo do listener...');
+main().catch(error => {
+    logger.error('Erro fatal:', error);
+    process.exit(1);
+});
+
+// Adiciona limpeza periódica de padrões
+setInterval(() => {
+    messagePatterns.clear();
+}, 15000); // Reduzido para 15 segundos para detectar novos padrões mais rapidamente
+
+// Verifica conexão dos listeners periodicamente
+setInterval(async () => {
+    const canaisData = await fs.readFile("canais.json", "utf8");
+    const canais = JSON.parse(canaisData);
+
+    for (const [name, { bot, conta }] of BotManager.listeners) {
+        const connectedChannels = bot.getChannels();
+        const missingChannels = canais.filter(c => !connectedChannels.includes(c));
+
+        if (missingChannels.length > 0) {
+            logger.warn(`Bot ${name} não está em ${missingChannels.length} canais. Reconectando...`);
+            for (const channel of missingChannels) {
+                try {
+                    await bot.join(channel);
+                    logger.info(`Bot ${name} reconectado ao canal: ${channel}`);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    logger.error(`Erro ao reconectar ${name} ao canal ${channel}:`, error);
+                }
+            }
+        }
+    }
+}, 60000); // Verifica a cada minuto
+
+// Única limpeza periódica - a cada 5 segundos
+setInterval(() => {
+    const now = Date.now();
+    for (const [channel, commands] of channelCommands) {
+        for (const [cmd, data] of commands) {
+            if (now - data.firstSeen > 30000) {
+                commands.delete(cmd);
+            }
+        }
+        if (commands.size === 0) {
+            channelCommands.delete(channel);
+        }
+    }
+}, 5000);
+
+// Limpeza a cada 30 segundos
+setInterval(() => {
+    channelCommands.clear();
+}, 30000);

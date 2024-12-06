@@ -6,37 +6,28 @@ class DisplayManager {
     constructor() {
         this.lastCommand = null;
         this.lastCommandTime = null;
-        this.suppressNextLog = false;
-        this.setupConsole();
-    }
-
-    clearScreen() {
-        process.stdout.write('\x1Bc');
+        this.headerShown = false;
     }
 
     showHeader() {
-        const title = [
-            '╔════════════════════════════════════════════════════════╗',
-            '║                   TWITCH GIVEAWAY                      ║',
-            '║                      MONITOR                           ║',
-            '╚════════════════════════════════════════════════════════╝'
-        ].map(line => chalk.cyan(line)).join('\n');
+        if (!this.headerShown) {
+            const title = [
+                '╔════════════════════════════════════════════════════════╗',
+                '║                   TWITCH GIVEAWAY                      ║',
+                '║                      MONITOR                           ║',
+                '╚════════════════════════════════════════════════════════╝'
+            ].map(line => chalk.cyan(line)).join('\n');
 
-        const subtitle = [
-            '',
-            `${chalk.gray('Developed by')} ${chalk.yellow('Carlos Carvalho')}`,
-            `${chalk.gray('Version')} ${chalk.yellow('1.1.9')}`,
-            ''
-        ].join('\n');
+            const subtitle = [
+                '',
+                `${chalk.gray('Developed by')} ${chalk.yellow('Carlos Carvalho')}`,
+                `${chalk.gray('Version')} ${chalk.yellow('1.1.9')}`,
+                ''
+            ].join('\n');
 
-        console.log('\n' + boxen(title + subtitle, {
-            padding: 2,
-            margin: { top: 1, bottom: 1 },
-            borderStyle: 'double',
-            borderColor: 'blue',
-            float: 'center',
-            width: 60
-        }));
+            console.log('\n' + title + subtitle + '\n');
+            this.headerShown = true;
+        }
     }
 
     showStatus(data) {
@@ -48,14 +39,22 @@ class DisplayManager {
             gameName
         } = data;
 
-        console.log('\n' + chalk.yellow('✨ Monitor Status ✨'));
-        console.log(chalk.green('✓') + chalk.bold(' Status: ') + chalk.green.bold('ACTIVE'));
-        console.log(chalk.cyan('🎮') + chalk.bold(' Game: ') + chalk.yellow.bold(gameName));
-        console.log(chalk.cyan('🕒') + chalk.bold(' Started: ') + chalk.yellow(startTime.toLocaleTimeString()));
-        console.log(chalk.cyan('📺') + chalk.bold(' Channels: ') + chalk.yellow.bold(channelsCount));
-        console.log(chalk.cyan('🔌') + chalk.bold(' Plugins: ') + chalk.yellow.bold(pluginsCount));
-        console.log(chalk.cyan('⏰') + chalk.bold(' Next Update: ') + chalk.yellow(nextUpdate.toLocaleTimeString()));
-        console.log(chalk.gray('Press Ctrl+C to exit'));
+        const status = [
+            '',
+            chalk.yellow('✨ Monitor Status ✨'),
+            chalk.green('✓') + chalk.bold(' Status: ') + chalk.green.bold('ACTIVE'),
+            chalk.cyan('🎮') + chalk.bold(' Game: ') + chalk.yellow.bold(gameName),
+            chalk.cyan('🕒') + chalk.bold(' Started: ') + chalk.yellow(startTime.toLocaleTimeString()),
+            chalk.cyan('📺') + chalk.bold(' Channels: ') + chalk.yellow.bold(channelsCount),
+            chalk.cyan('🔌') + chalk.bold(' Plugins: ') + chalk.yellow.bold(pluginsCount),
+            chalk.cyan('⏰') + chalk.bold(' Next Update: ') + chalk.yellow(nextUpdate.toLocaleTimeString()),
+            chalk.gray('Press Ctrl+C to exit'),
+            '',
+            chalk.yellow('════════════════ LIVE MESSAGES ════════════════'),
+            ''
+        ].join('\n');
+
+        console.log(status);
     }
 
     logPatternDetection(data) {

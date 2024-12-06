@@ -4,6 +4,33 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [1.3.0] - 2024-03-20
+### Adicionado
+- Sistema de análise de comportamento do chat com Machine Learning
+- Detecção de padrões por múltiplos usuários
+- Integração com Smart Keywords para aprendizado contínuo
+- Sistema de pontuação para redução de falsos positivos
+- Análise estatística de padrões de chat
+
+### Melhorado
+- Precisão na detecção de sorteios
+- Redução de participações em falsos positivos
+- Integração com sistema de plugins
+- Performance da análise de mensagens
+
+## [1.2.0] - 2024-03-20
+### Adicionado
+- Novo sistema de gerenciamento de bots
+- Melhor controle de participação em sorteios
+- Detecção de vencedores
+- Limpeza automática de canais inativos
+
+### Melhorado
+- Lógica de participação de bots
+- Separação clara entre listeners e participantes
+- Gestão de conexões e desconexões
+- Integração com sistema de plugins
+
 ## [1.1.9] - 2024-03-20
 ### Corrigido
 - Compatibilidade do boxen com CommonJS
