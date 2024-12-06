@@ -1,10 +1,25 @@
 const winston = require('winston');
 const path = require('path');
+const fs = require('fs');
 
 // Configuração dos formatos
 const formats = winston.format.combine(
     winston.format.timestamp(),
     winston.format.json()
+);
+
+// Garante que o diretório de logs existe
+const logDir = path.join(process.cwd(), 'log');
+if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+}
+
+// Adiciona timestamp aos logs
+const logFormat = winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => {
+        return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+    })
 );
 
 // Criação do logger

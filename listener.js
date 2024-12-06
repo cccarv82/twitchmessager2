@@ -7,12 +7,17 @@ const PluginManager = require('./src/plugins/PluginManager');
 const path = require('path');
 const { logger } = require('./src/logger');
 const DisplayManager = require('./src/services/DisplayManager');
+const BotManager = require('./src/services/BotManager');
+const ChatAnalyzer = require('./src/services/ChatAnalyzer');
 
 // Estrutura para armazenar mensagens por canal
-const messagePatterns = new Map(); // Canal -> Map<mensagem, contagem>
+const messagePatterns = new Map(); // Canal -> Map<mensagem, { count, timestamps, users }>
 
 // Estrutura para controlar participações por canal
 const participationHistory = new Map(); // Canal -> Map<conta, Set<comando>>
+
+// Estrutura única para tracking de comandos
+const channelCommands = new Map(); // Canal -> Map<comando, Set<username>>
 
 // Lê configurações do arquivo config.ini
 async function getConfig() {
@@ -65,6 +70,9 @@ function formatMessage(channel, username, message, matchedKeyword) {
     matchedKeyword, 
     chalk.red.bold(matchedKeyword)
   );
+
+  // Só exibe mensagens que contenham palavras-chave ou padrões relevantes
+  if (!matchedKeyword) return null;
 
   return `👉 👉 👉 👉 [${timestamp}] ${channelLink} | ${user}: ${msg}`;
 }
@@ -240,15 +248,41 @@ function checkWinnerOrMention(message, usernames, messageUser, channel, currentB
 
 // Nova função para detectar comandos de participação
 function detectParticipationCommand(message) {
-  const messageLower = message.toLowerCase();
-  
-  for (const pattern of PARTICIPATION_PATTERNS) {
-    if (messageLower.includes(pattern.trigger.toLowerCase())) {
-      return pattern.command;
-    }
-  }
+    // Normaliza a mensagem
+    const normalizedMsg = message.toLowerCase().trim();
+    
+    // Lista de comandos conhecidos
+    const knownCommands = [
+        '!enter',
+        '!join',
+        '!ticket',
+        '!sorteo',
+        '!raffle',
+        '!giveaway',
+        '!sorteio',
+        '!participar'
+    ];
 
-  return null;
+    // Se é um comando conhecido, retorna imediatamente
+    if (knownCommands.includes(normalizedMsg)) {
+        logger.debug(`Comando conhecido detectado: ${normalizedMsg}`);
+        return normalizedMsg;
+    }
+
+    // Se começa com !, analisa o padrão de uso
+    if (normalizedMsg.startsWith('!')) {
+        // Verifica se é um comando sendo usado por múltiplos usuários
+        const channel = message.channel;
+        const recentMessages = global.messagePatterns.get(channel) || new Map();
+        const commandCount = recentMessages.get(normalizedMsg) || 0;
+
+        if (commandCount >= 3) { // Se 3 ou mais pessoas usaram o mesmo comando
+            logger.debug(`Comando popular detectado: ${normalizedMsg} (usado ${commandCount} vezes)`);
+            return normalizedMsg;
+        }
+    }
+
+    return null;
 }
 
 // Nova função para verificar se já participou
@@ -466,155 +500,119 @@ async function setupBotEvents(bot, conta, canais) {
     // Lê configurações necessárias
     const configData = await fs.readFile("./config.ini", "utf-8");
     const config = ini.parse(configData);
-    const palavrasChave = config.KEYWORDS.PARTICIPATION.split(',');
     
-    // Lê contas para verificar menções
-    const contasData = await fs.readFile('contas.json', 'utf8');
-    const contas = JSON.parse(contasData);
-    const usernames = contas.map(c => c.nome);
-
     // Configura eventos
     bot.on("message", async (channel, tags, message, self) => {
         if (self) return;
         
-        const messageLower = message.toLowerCase();
         const channelName = channel.replace('#', '');
-        
-        // Verifica blacklist antes de processar a mensagem
-        const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
-        if (blacklistPlugin) {
-            const isBlacklisted = await blacklistPlugin.onMessage(channel, message);
-            if (isBlacklisted) {
-                if (conta.isListener) {
-                    console.log(chalk.red(`🚫 Mensagem bloqueada em ${channelName}: ${message}`));
-                }
-                return;
-            }
-        }
+        const messageLower = message.toLowerCase().trim();
+        const normalizedMessage = normalizeCommand(messageLower);
 
-        // Emite evento de mensagem para plugins
-        await global.pluginManager.emit('onMessage', channelName, message);
-        
-        // Detecta padrões de mensagens
-        const pattern = detectMessagePattern(channel, messageLower);
-        if (pattern) {
-            DisplayManager.logPatternDetection({
-                channel: channelName,
-                message: pattern.message,
-                count: pattern.count,
-                timeWindow: pattern.timeWindow,
-                type: pattern.isParticipationCommand ? 'participation' : 'pattern'
+        try {
+            // 1. Comandos conhecidos - verificação atualizada
+            const isKnownCommand = global.botManager.isKnownCommand(normalizedMessage);
+            
+            // 2. Inicializa tracking do canal
+            if (!channelCommands.has(channelName)) {
+                channelCommands.set(channelName, new Map());
+            }
+
+            const commands = channelCommands.get(channelName);
+            
+            // 3. Processa a mensagem usando a mensagem normalizada
+            if (!commands.has(normalizedMessage)) {
+                commands.set(normalizedMessage, {
+                    users: new Set(),
+                    messages: [],
+                    firstSeen: Date.now()
+                });
+            }
+
+            const cmdData = commands.get(normalizedMessage);
+            cmdData.users.add(tags.username);
+            cmdData.messages.push({
+                user: tags.username,
+                timestamp: Date.now()
             });
 
-            // Se parece ser um comando de participação
-            if (pattern.isParticipationCommand) {
-                const command = pattern.message.trim();
-                
-                // Verifica se temos bots ativos
-                if (!global.activeBots || !Array.isArray(global.activeBots)) {
-                    logger.warn('Nenhum bot ativo disponível para participação');
-                    return;
-                }
+            // Limpa mensagens antigas
+            const now = Date.now();
+            const config = isKnownCommand ? 
+                global.botManager.getCommandConfig(true) : 
+                global.botManager.getCommandConfig(false);
 
-                // Itera sobre os bots participantes de forma segura
-                for (const participantBot of global.activeBots) {
-                    try {
-                        const botUsername = participantBot.getUsername();
-                        const botConta = contas.find(c => c.nome === botUsername);
-                        if (!botConta) continue;
+            cmdData.messages = cmdData.messages.filter(msg => 
+                now - msg.timestamp <= config.timeWindow
+            );
 
-                        // Se não for o listener, primeiro entra no canal
-                        if (!botConta.isListener) {
-                            if (!participantBot.getChannels().includes(channel)) {
-                                await participantBot.join(channel);
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                            }
-                        }
+            // 4. Verifica padrões de detecção
+            const hasEnoughUsers = isKnownCommand ? 
+                cmdData.users.size >= config.minUsers :  // Para comandos conhecidos, só verifica usuários
+                (cmdData.users.size >= config.minUsers && 
+                 cmdData.messages.length >= config.minMessages);  // Para desconhecidos, verifica ambos
 
-                        // Participa
-                        await participateInGiveaway(participantBot, channel, command, botConta, botConta.isListener);
+            if (hasEnoughUsers) {
+                const timeSinceFirst = now - cmdData.firstSeen;
+                if (timeSinceFirst <= config.timeWindow) {
+                    // Log do padrão detectado
+                    logger.info(`
+🎯 ${chalk.cyan(channelName)} at ${new Date().toLocaleTimeString()}
+Command: ${chalk.yellow(normalizedMessage)}
+${cmdData.users.size}/${config.minUsers} usuários diferentes enviaram ${cmdData.messages.length}/${isKnownCommand ? config.minUsers : config.minMessages} mensagens em ${Math.floor(timeSinceFirst/1000)}s
+${isKnownCommand ? '✓ Comando conhecido' : 'ℹ Padrão detectado (requer ' + config.minUsers + ' usuários e ' + config.minMessages + ' mensagens)'}
+                    `);
 
-                        // Se não for listener, programa para sair do canal
-                        if (!botConta.isListener) {
-                            setTimeout(async () => {
-                                try {
-                                    await participantBot.part(channel);
-                                    logger.info(`Bot ${botUsername} saiu do canal ${channel}`);
-                                } catch (error) {
-                                    logger.error(`Erro ao sair do canal ${channel}:`, error);
-                                }
-                            }, 5000);
-                        }
+                    // Notifica sobre o padrão detectado
+                    DisplayManager.logPatternDetection({
+                        channel: channelName,
+                        message: normalizedMessage,
+                        count: cmdData.messages.length,
+                        uniqueUsers: cmdData.users.size,
+                        timeWindow: Math.floor(timeSinceFirst / 1000),
+                        type: 'participation',
+                        isKnownCommand
+                    });
 
-                    } catch (error) {
-                        logger.error(`Erro ao participar com bot:`, error);
-                    }
+                    // Inicia participação via BotManager
+                    await global.botManager.participateInGiveaway(
+                        channel,
+                        normalizedMessage,
+                        isKnownCommand ? 'known_command' : 'pattern_detected'
+                    );
+
+                    // Limpa o comando após participar
+                    commands.delete(normalizedMessage);
                 }
             }
-        }
 
-        // Verifica se é uma mensagem que indica como participar
-        const participationCommand = detectParticipationCommand(message);
-        if (participationCommand) {
-            // Só mostra mensagem no console se for listener
-            if (conta.isListener) {
-                const channelName = channel.replace('#', '');
-                const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
-                console.log(chalk.magenta(
-                    `🎯 🎯 🎯 🎯 🎯 [${new Date().toLocaleTimeString()}] ${channelLink} | ` +
-                    `Comando de participação detectado: ${chalk.green(participationCommand)}\n`
-                ));
-            }
-
-            await participateWithAllAccounts(bot, channel, participationCommand, conta.isListener);
-        }
-
-        // Verifica se alguém ganhou ou foi mencionado
-        const winnerOrMention = checkWinnerOrMention(message, usernames, tags.username, channel, bot);
-        if (winnerOrMention) {
-            console.log(winnerOrMention.message);
+        } catch (error) {
+            logger.error(`Erro ao processar mensagem em ${channelName}:`, error);
         }
     });
 
-    // Adiciona evento de whisper
+    // Configura evento de whisper
     bot.on("whisper", async (from, userstate, message, self) => {
-        // Ignora apenas mensagens realmente enviadas pelo próprio bot
-        if (self && from.toLowerCase() === conta.nome.toLowerCase()) {
-            return;
-        }
+        if (self && from.toLowerCase() === conta.nome.toLowerCase()) return;
 
-        // Salva todos os whispers no arquivo de log
         await logWhisper(conta, from, message);
+        logger.info(`💌 Whisper de ${chalk.cyan(from)} para ${chalk.yellow(conta.nome)}: ${message}`);
 
-        // Mostra todos os whispers no console de forma mais limpa
-        console.log(chalk.magenta(
-            `💌 [${new Date().toLocaleTimeString()}] Whisper de ${chalk.cyan(from)} para ${chalk.yellow(conta.nome)}: ${message}`
-        ));
-
-        // Se contiver palavras-chave importantes, destaca
         if (WHISPER_PATTERNS.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()))) {
-            console.log(chalk.bgRed.white(
-                `🎉 POSSÍVEL VITÓRIA DETECTADA!`
-            ));
+            logger.info(chalk.bgRed.white(`🎉 POSSÍVEL VITÓRIA DETECTADA!`));
         }
 
-        // Emite evento para plugins
-        await global.pluginManager.emit('onWhisperReceived', from, message, conta.nome);
+        await global.pluginManager?.emit('onWhisperReceived', from, message, conta.nome);
     });
 
-    // Também podemos adicionar um evento específico para erros de whisper
-    bot.on("whisper_error", (error) => {
-        console.error(`Erro de whisper para ${conta.nome}:`, error);
-    });
-
-    // Só mostra mensagens de conexão/desconexão se for a conta Listener
+    // Eventos de conexão
     if (conta.isListener) {
         bot.on("connected", (addr, port) => {
-            console.log(chalk.green(`Bot ${conta.nome} reconectado a ${addr}:${port}`));
+            logger.info(`Bot ${conta.nome} reconectado a ${addr}:${port}`);
         });
 
         bot.on("disconnected", (reason) => {
-            console.log(chalk.red(`Bot ${conta.nome} desconectado: ${reason}`));
+            logger.error(`Bot ${conta.nome} desconectado: ${reason}`);
         });
     }
 }
@@ -627,29 +625,55 @@ function clearScreen() {
 // Inicializa o gerenciador de plugins globalmente
 global.pluginManager = new PluginManager();
 
-// Modifique a função main para inicializar as configurações
+// Modifique a função main para inicializar o BotManager corretamente
 async function main() {
     try {
+        logger.info('Iniciando sistema do listener...');
+        
         // Inicializa configurações primeiro
         await initializeConfig();
         const currentConfig = await getConfig();
 
-        // Carrega plugins primeiro
+        // Inicializa o BotManager como global
+        global.botManager = BotManager;
+        await global.botManager.loadConfig();
+
+        // Carrega plugins
+        logger.info('Carregando plugins...');
         await global.pluginManager.loadPlugins();
         
         // Carrega canais e contas
+        logger.info('Carregando configurações...');
         const canaisData = await fs.readFile("canais.json", "utf8");
         const canais = JSON.parse(canaisData);
         const contasData = await fs.readFile("contas.json", "utf8");
         const contas = JSON.parse(contasData);
 
-        // Configura e conecta bots
+        // Verifica tokens e conecta bots
+        logger.info('Conectando bots...');
         const bots = [];
         for (const conta of contas) {
-            const bot = await connectBot(conta, canais);
-            if (bot) {
-                await setupBotEvents(bot, conta, canais);
-                bots.push(bot);
+            try {
+                // Valida token
+                const response = await fetch('https://id.twitch.tv/oauth2/validate', {
+                    headers: {
+                        'Authorization': `OAuth ${conta.access_token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Token inválido para conta ${conta.nome}`);
+                }
+
+                // Conecta o bot
+                const bot = await global.botManager.connectBot(conta, canais);
+                if (bot) {
+                    await setupBotEvents(bot, conta, canais);
+                    logger.info(`Bot ${conta.nome} inicializado com sucesso`);
+                    bots.push(bot);
+                }
+            } catch (error) {
+                logger.error(`Falha ao inicializar ${conta.nome}:`, error);
             }
         }
 
@@ -659,8 +683,12 @@ async function main() {
 
         global.activeBots = bots;
 
-        // Só agora mostra o display
+        // Limpa a tela e mostra o novo display
         DisplayManager.clearScreen();
+        
+        // Pequeno delay para garantir que tudo foi limpo
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         DisplayManager.showHeader();
         DisplayManager.showStatus({
             startTime: new Date(),
@@ -670,56 +698,30 @@ async function main() {
             gameName: currentConfig.nomeDoJogo || 'Not Set'
         });
 
-        // Verifica tokens
-        try {
-            const { stdout, stderr } = await new Promise((resolve, reject) => {
-                exec('node oauth2.js', (error, stdout, stderr) => {
-                    if (error) reject({ error, stderr });
-                    else resolve({ stdout, stderr });
-                });
-            });
+        // Configura o console para filtrar mensagens indesejadas
+        DisplayManager.setupConsole();
 
-            if (stderr && stderr.includes('error')) {
-                throw new Error(`Erro na renovação: ${stderr}`);
-            }
-
-            // Valida tokens
-            for (const conta of contas) {
-                try {
-                    const response = await fetch('https://id.twitch.tv/oauth2/validate', {
-                        headers: {
-                            'Authorization': `OAuth ${conta.access_token}`
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Token inválido para conta ${conta.nome}`);
-                    }
-                } catch (error) {
-                    throw new Error(`Falha na validação do token para ${conta.nome}: ${error.message}`);
-                }
-            }
-
-        } catch (error) {
-            logger.error('Erro na verificação de tokens:', error);
-            throw error;
-        }
-
+        logger.info('Sistema iniciado com sucesso');
+        
         // Configura encerramento gracioso
         process.on('SIGINT', async () => {
-            logger.info('\nFinalizando monitoramento...');
+            logger.info('\nFinalizando sistema...');
             for (const bot of bots) {
                 try {
                     await bot.disconnect();
+                    logger.info(`Bot ${bot.getUsername()} desconectado`);
                 } catch (error) {
-                    // Ignora erros de desconexão
+                    logger.error(`Erro ao desconectar bot:`, error);
                 }
             }
-            process.exit();
+            process.exit(0);
         });
 
+        // Notifica que está pronto
+        process.send?.({ type: 'ready' });
+
     } catch (error) {
-        logger.error("Erro ao inicializar:", error);
+        logger.error("Erro fatal ao inicializar listener:", error);
         process.exit(1);
     }
 }
@@ -738,13 +740,13 @@ async function updateChannels(isListener) {
 
         if (!gameName) {
             if (isListener) {
-                console.log(chalk.red('\nErro: Não foi possível atualizar canais - jogo não configurado'));
+                console.log(chalk.red('\nErro: Não foi possível atualizar canais - jogo no configurado'));
             }
             return;
         }
 
         if (isListener) {
-            console.log(chalk.cyan('\n🔄 Atualizando lista de canais...'));
+            console.log(chalk.cyan('\n Atualizando lista de canais...'));
         }
         
         const url = `http://localhost:3000/start-grabber/${encodeURIComponent(gameName)}`;
@@ -823,4 +825,151 @@ async function updateChannels(isListener) {
     }
 }
 
-main();
+// No início do arquivo
+process.on('uncaughtException', (error) => {
+    logger.error('Erro não capturado no listener:', error);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Promise não tratada rejeitada no listener:', reason);
+});
+
+// Executa
+logger.info('Iniciando processo do listener...');
+main().catch(error => {
+    logger.error('Erro fatal:', error);
+    process.exit(1);
+});
+
+// Adiciona limpeza periódica de padrões
+setInterval(() => {
+    messagePatterns.clear();
+}, 15000); // Reduzido para 15 segundos para detectar novos padrões mais rapidamente
+
+// Verifica conexão dos listeners periodicamente
+setInterval(async () => {
+    const canaisData = await fs.readFile("canais.json", "utf8");
+    const canais = JSON.parse(canaisData);
+
+    for (const [name, { bot, conta }] of BotManager.listeners) {
+        const connectedChannels = bot.getChannels();
+        const missingChannels = canais.filter(c => !connectedChannels.includes(c));
+
+        if (missingChannels.length > 0) {
+            logger.warn(`Bot ${name} não está em ${missingChannels.length} canais. Reconectando...`);
+            for (const channel of missingChannels) {
+                try {
+                    await bot.join(channel);
+                    logger.info(`Bot ${name} reconectado ao canal: ${channel}`);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    logger.error(`Erro ao reconectar ${name} ao canal ${channel}:`, error);
+                }
+            }
+        }
+    }
+}, 60000); // Verifica a cada minuto
+
+// Única limpeza periódica - a cada 5 segundos
+setInterval(() => {
+    const now = Date.now();
+    for (const [channel, commands] of channelCommands) {
+        for (const [cmd, data] of commands) {
+            if (now - data.firstSeen > 30000) {
+                commands.delete(cmd);
+            }
+        }
+        if (commands.size === 0) {
+            channelCommands.delete(channel);
+        }
+    }
+}, 5000);
+
+// Limpeza a cada 30 segundos
+setInterval(() => {
+    channelCommands.clear();
+}, 30000);
+
+// Adiciona função de normalização
+function normalizeCommand(command) {
+    return command
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\u200B-\u200D\uFEFF\u0000-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F]/g, '')
+        .replace(/[^\x20-\x7E]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+// Atualiza a função que processa mensagens de chat
+async function processMessage(channel, userstate, message, self) {
+    const channelName = channel.replace('#', '');
+    
+    try {
+        const normalizedMessage = normalizeCommand(message);
+        const isKnownCommand = global.botManager.isKnownCommand(normalizedMessage);
+        
+        // Obtém a configuração apropriada
+        const config = global.botManager.getCommandConfig(isKnownCommand);
+        
+        // Inicializa tracking do canal se necessário
+        if (!channelCommands.has(channelName)) {
+            channelCommands.set(channelName, new Map());
+        }
+        const commands = channelCommands.get(channelName);
+        
+        // Inicializa dados do comando
+        if (!commands.has(normalizedMessage)) {
+            commands.set(normalizedMessage, {
+                users: new Set(),
+                messages: [],
+                firstSeen: Date.now()
+            });
+        }
+
+        const cmdData = commands.get(normalizedMessage);
+        cmdData.users.add(userstate.username);
+        cmdData.messages.push({
+            user: userstate.username,
+            timestamp: Date.now()
+        });
+
+        // Limpa mensagens antigas
+        const now = Date.now();
+        cmdData.messages = cmdData.messages.filter(msg => 
+            now - msg.timestamp <= config.timeWindow
+        );
+
+        // Verifica se atingiu os critérios
+        const hasEnoughUsers = isKnownCommand ? 
+            cmdData.users.size >= config.minUsers :
+            (cmdData.users.size >= config.minUsers && 
+             cmdData.messages.length >= config.minMessages);
+
+        if (hasEnoughUsers) {
+            const timeSinceFirst = now - cmdData.firstSeen;
+            if (timeSinceFirst <= config.timeWindow) {
+                logger.info(`
+🎯 ${chalk.cyan(channelName)} at ${new Date().toLocaleTimeString()}
+Command: ${chalk.yellow(normalizedMessage)}
+${cmdData.users.size}/${config.minUsers} usuários diferentes enviaram ${cmdData.messages.length}/${isKnownCommand ? config.minUsers : config.minMessages} mensagens em ${Math.floor(timeSinceFirst/1000)}s
+${isKnownCommand ? '✓ Comando conhecido' : 'ℹ Padrão detectado'}
+                `);
+
+                // Inicia participação via BotManager
+                await global.botManager.participateInGiveaway(
+                    channel,
+                    normalizedMessage,
+                    isKnownCommand ? 'known_command' : 'pattern_detected'
+                );
+
+                // Limpa o comando após participar
+                commands.delete(normalizedMessage);
+            }
+        }
+    } catch (error) {
+        logger.error(`Erro ao processar mensagem em ${channelName}:`, error);
+    }
+}

@@ -1,0 +1,86 @@
+[
+  {
+    "timestamp": "2024-12-06T18:21:28.438-03:00",
+    "channel": "quin69",
+    "command": "classic",
+    "bot": "pilotolento",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:28.436-03:00",
+    "channel": "quin69",
+    "command": "classic",
+    "bot": null,
+    "success": false,
+    "error": null,
+    "totalBots": 7,
+    "type": "start"
+  },
+  {
+    "timestamp": "2024-12-06T18:21:18.580-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "relampejomarquinhus",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:17.348-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "justanotherregularplayerr",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:16.123-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "immapiratewanabe",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:14.902-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "ijustlovetoplaygames",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:13.676-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "frangaliu",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:12.441-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "cocordilu",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:11.210-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": "pilotolento",
+    "success": true,
+    "error": null
+  },
+  {
+    "timestamp": "2024-12-06T18:21:11.208-03:00",
+    "channel": "jessirocks",
+    "command": "!key10",
+    "bot": null,
+    "success": false,
+    "error": null,
+    "totalBots": 7,
+    "type": "start"
+  }
+]

@@ -4,6 +4,65 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [1.3.2] - 2024-03-21
+### Adicionado
+- Monitor de participações em tempo real
+- Status visual de progresso das participações
+- Histórico de participações recentes
+- Indicadores de sucesso/erro por bot
+
+### Melhorado
+- Interface do painel de monitoramento
+- Feedback visual de participações
+- Gestão de estado das participações
+- Limpeza automática de dados antigos
+
+## [1.3.1] - 2024-03-21
+### Adicionado
+- Nova implementação de participação em sorteios
+- Sistema de entrada/saída automática de canais
+- Cooldown de 10 minutos por canal/comando
+- Logs detalhados de participação
+- Melhor integração com plugins
+
+### Melhorado
+- Performance na participação
+- Gestão de conexões dos bots
+- Sistema de logs
+- Tratamento de erros
+
+## [1.3.0] - 2024-03-21
+### Adicionado
+- Nova implementação do sistema de participação em sorteios
+- Participação simultânea de todos os bots
+- Controle de cooldown por canal/comando
+- Logs detalhados de participações
+- Integração com sistema de plugins para participações
+
+### Melhorado
+- Performance na participação em sorteios
+- Gestão de memória para histórico de participações
+- Logs mais informativos
+- Integração com plugins existentes
+
+### Corrigido
+- Problemas de rate limiting na participação
+- Duplicação de participações
+- Gestão de conexões dos bots
+
+## [1.2.0] - 2024-03-20
+### Adicionado
+- Novo sistema de gerenciamento de bots
+- Melhor controle de participação em sorteios
+- Detecção de vencedores
+- Limpeza automática de canais inativos
+
+### Melhorado
+- Lógica de participação de bots
+- Separação clara entre listeners e participantes
+- Gestão de conexões e desconexões
+- Integração com sistema de plugins
+
 ## [1.1.9] - 2024-03-20
 ### Corrigido
 - Compatibilidade do boxen com CommonJS

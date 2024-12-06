@@ -10,6 +10,7 @@ whispers.json
 features.txt
 prompt-helper.md
 *aider*
+logs/
 # Plugins data
 plugins/*/data/*
 !plugins/*/data/.gitkeep
