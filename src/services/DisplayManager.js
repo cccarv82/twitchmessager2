@@ -176,11 +176,14 @@ class DisplayManager {
             }
 
             // Se a mensagem contiver certos padrões, envia para log
-            if (message.includes('error:') || 
-                message.includes('warn:') || 
-                message.includes('info:') ||
-                message.includes('saiu do canal') ||
-                message.includes('Erro ao')) {
+            if ((message.includes('error:') || 
+                 message.includes('warn:') || 
+                 message.includes('info:') ||
+                 message.includes('saiu do canal') ||
+                 message.includes('Erro ao')) && 
+                !message.includes('✓') && // Não filtra mensagens de sucesso
+                !message.includes('🤖') && // Não filtra início de participação
+                !message.includes('✅')) { // Não filtra fim de participação
                 logger.info(message);
                 return;
             }
@@ -215,6 +218,36 @@ class DisplayManager {
             if (now - timestamp > this.detectionCooldown) {
                 this.detectionHistory.delete(key);
             }
+        }
+    }
+
+    static logParticipation(data) {
+        const timestamp = new Date().toLocaleTimeString();
+        
+        switch(data.type) {
+            case 'start':
+                console.log(`
+────────────────────────────────────────────────────────────────────────────────
+🤖 Participando em ${chalk.cyan(data.channel)}
+Comando: ${chalk.green(data.command)}
+Total de bots: ${chalk.yellow(data.totalBots)}
+                `);
+                break;
+
+            case 'success':
+                console.log(`✓ ${chalk.green(data.bot)} participou em ${chalk.cyan(data.channel)}`);
+                break;
+
+            case 'error':
+                console.log(`❌ ${chalk.red(data.bot)} falhou em ${chalk.cyan(data.channel)}: ${data.error}`);
+                break;
+
+            case 'complete':
+                console.log(`
+✅ Participação concluída em ${chalk.cyan(data.channel)}
+────────────────────────────────────────────────────────────────────────────────
+                `);
+                break;
         }
     }
 }

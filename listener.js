@@ -500,13 +500,7 @@ async function setupBotEvents(bot, conta, canais) {
     // Lê configurações necessárias
     const configData = await fs.readFile("./config.ini", "utf-8");
     const config = ini.parse(configData);
-    const palavrasChave = config.KEYWORDS.PARTICIPATION.split(',');
     
-    // Lê contas para verificar menções
-    const contasData = await fs.readFile('contas.json', 'utf8');
-    const contas = JSON.parse(contasData);
-    const usernames = contas.map(c => c.nome);
-
     // Configura eventos
     bot.on("message", async (channel, tags, message, self) => {
         if (self) return;
@@ -517,7 +511,7 @@ async function setupBotEvents(bot, conta, canais) {
 
         try {
             // 1. Comandos conhecidos - verificação atualizada
-            const isKnownCommand = BotManager.isKnownCommand(normalizedMessage);
+            const isKnownCommand = global.botManager.isKnownCommand(normalizedMessage);
             
             // 2. Inicializa tracking do canal
             if (!channelCommands.has(channelName)) {
@@ -545,8 +539,8 @@ async function setupBotEvents(bot, conta, canais) {
             // Limpa mensagens antigas
             const now = Date.now();
             const config = isKnownCommand ? 
-                BotManager.getCommandConfig(true) : 
-                BotManager.getCommandConfig(false);
+                global.botManager.getCommandConfig(true) : 
+                global.botManager.getCommandConfig(false);
 
             cmdData.messages = cmdData.messages.filter(msg => 
                 now - msg.timestamp <= config.timeWindow
@@ -561,13 +555,12 @@ async function setupBotEvents(bot, conta, canais) {
             if (hasEnoughUsers) {
                 const timeSinceFirst = now - cmdData.firstSeen;
                 if (timeSinceFirst <= config.timeWindow) {
-                    logger.info(`Possível sorteio detectado em ${channelName}:
-                        Mensagem: ${normalizedMessage}
-                        Usuários únicos: ${cmdData.users.size}/${config.minUsers}
-                        Total mensagens: ${cmdData.messages.length}/${isKnownCommand ? config.minUsers : config.minMessages}
-                        Tipo: ${isKnownCommand ? 'Comando conhecido' : 'Padrão detectado'}
-                        Config usada: ${JSON.stringify(config)}
-                        Tempo: ${timeSinceFirst}ms
+                    // Log do padrão detectado
+                    logger.info(`
+🎯 ${chalk.cyan(channelName)} at ${new Date().toLocaleTimeString()}
+Command: ${chalk.yellow(normalizedMessage)}
+${cmdData.users.size}/${config.minUsers} usuários diferentes enviaram ${cmdData.messages.length}/${isKnownCommand ? config.minUsers : config.minMessages} mensagens em ${Math.floor(timeSinceFirst/1000)}s
+${isKnownCommand ? '✓ Comando conhecido' : 'ℹ Padrão detectado (requer ' + config.minUsers + ' usuários e ' + config.minMessages + ' mensagens)'}
                     `);
 
                     // Notifica sobre o padrão detectado
@@ -581,7 +574,14 @@ async function setupBotEvents(bot, conta, canais) {
                         isKnownCommand
                     });
 
-                    await BotManager.participateInGiveaway(channel, normalizedMessage, conta.nome);
+                    // Inicia participação via BotManager
+                    await global.botManager.participateInGiveaway(
+                        channel,
+                        normalizedMessage,
+                        isKnownCommand ? 'known_command' : 'pattern_detected'
+                    );
+
+                    // Limpa o comando após participar
                     commands.delete(normalizedMessage);
                 }
             }
@@ -591,45 +591,28 @@ async function setupBotEvents(bot, conta, canais) {
         }
     });
 
-    // Adiciona evento de whisper
+    // Configura evento de whisper
     bot.on("whisper", async (from, userstate, message, self) => {
-        // Ignora apenas mensagens realmente enviadas pelo próprio bot
-        if (self && from.toLowerCase() === conta.nome.toLowerCase()) {
-            return;
-        }
+        if (self && from.toLowerCase() === conta.nome.toLowerCase()) return;
 
-        // Salva todos os whispers no arquivo de log
         await logWhisper(conta, from, message);
+        logger.info(`💌 Whisper de ${chalk.cyan(from)} para ${chalk.yellow(conta.nome)}: ${message}`);
 
-        // Mostra todos os whispers no console de forma mais limpa
-        console.log(chalk.magenta(
-            `💌 [${new Date().toLocaleTimeString()}] Whisper de ${chalk.cyan(from)} para ${chalk.yellow(conta.nome)}: ${message}`
-        ));
-
-        // Se contiver palavras-chave importantes, destaca
         if (WHISPER_PATTERNS.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()))) {
-            console.log(chalk.bgRed.white(
-                `🎉 POSSÍVEL VITÓRIA DETECTADA!`
-            ));
+            logger.info(chalk.bgRed.white(`🎉 POSSÍVEL VITÓRIA DETECTADA!`));
         }
 
-        // Emite evento para plugins
-        await global.pluginManager.emit('onWhisperReceived', from, message, conta.nome);
+        await global.pluginManager?.emit('onWhisperReceived', from, message, conta.nome);
     });
 
-    // Também podemos adicionar um evento específico para erros de whisper
-    bot.on("whisper_error", (error) => {
-        console.error(`Erro de whisper para ${conta.nome}:`, error);
-    });
-
-    // Só mostra mensagens de conexão/desconexão se for a conta Listener
+    // Eventos de conexão
     if (conta.isListener) {
         bot.on("connected", (addr, port) => {
-            console.log(chalk.green(`Bot ${conta.nome} reconectado a ${addr}:${port}`));
+            logger.info(`Bot ${conta.nome} reconectado a ${addr}:${port}`);
         });
 
         bot.on("disconnected", (reason) => {
-            console.log(chalk.red(`Bot ${conta.nome} desconectado: ${reason}`));
+            logger.error(`Bot ${conta.nome} desconectado: ${reason}`);
         });
     }
 }
@@ -642,7 +625,7 @@ function clearScreen() {
 // Inicializa o gerenciador de plugins globalmente
 global.pluginManager = new PluginManager();
 
-// Modifique a função main para inicializar as configurações
+// Modifique a função main para inicializar o BotManager corretamente
 async function main() {
     try {
         logger.info('Iniciando sistema do listener...');
@@ -651,7 +634,11 @@ async function main() {
         await initializeConfig();
         const currentConfig = await getConfig();
 
-        // Carrega plugins primeiro
+        // Inicializa o BotManager como global
+        global.botManager = BotManager;
+        await global.botManager.loadConfig();
+
+        // Carrega plugins
         logger.info('Carregando plugins...');
         await global.pluginManager.loadPlugins();
         
@@ -662,50 +649,31 @@ async function main() {
         const contasData = await fs.readFile("contas.json", "utf8");
         const contas = JSON.parse(contasData);
 
-        // Verifica tokens primeiro
-        logger.info('Verificando tokens...');
-        try {
-            const { stdout, stderr } = await new Promise((resolve, reject) => {
-                exec('node oauth2.js', (error, stdout, stderr) => {
-                    if (error) reject({ error, stderr });
-                    else resolve({ stdout, stderr });
-                });
-            });
-
-            if (stderr && stderr.includes('error')) {
-                throw new Error(`Erro na renovação: ${stderr}`);
-            }
-
-            // Valida tokens
-            for (const conta of contas) {
-                try {
-                    const response = await fetch('https://id.twitch.tv/oauth2/validate', {
-                        headers: {
-                            'Authorization': `OAuth ${conta.access_token}`
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Token invlido para conta ${conta.nome}`);
-                    }
-                } catch (error) {
-                    throw new Error(`Falha na validação do token para ${conta.nome}: ${error.message}`);
-                }
-            }
-
-        } catch (error) {
-            logger.error('Erro na verificação de tokens:', error);
-            throw error;
-        }
-
-        // Configura e conecta bots
+        // Verifica tokens e conecta bots
         logger.info('Conectando bots...');
         const bots = [];
         for (const conta of contas) {
-            const bot = await connectBot(conta, canais);
-            if (bot) {
-                await setupBotEvents(bot, conta, canais);
-                bots.push(bot);
+            try {
+                // Valida token
+                const response = await fetch('https://id.twitch.tv/oauth2/validate', {
+                    headers: {
+                        'Authorization': `OAuth ${conta.access_token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Token inválido para conta ${conta.nome}`);
+                }
+
+                // Conecta o bot
+                const bot = await global.botManager.connectBot(conta, canais);
+                if (bot) {
+                    await setupBotEvents(bot, conta, canais);
+                    logger.info(`Bot ${conta.nome} inicializado com sucesso`);
+                    bots.push(bot);
+                }
+            } catch (error) {
+                logger.error(`Falha ao inicializar ${conta.nome}:`, error);
             }
         }
 
@@ -751,7 +719,7 @@ async function main() {
 
         // Notifica que está pronto
         process.send?.({ type: 'ready' });
-        
+
     } catch (error) {
         logger.error("Erro fatal ao inicializar listener:", error);
         process.exit(1);
@@ -933,4 +901,75 @@ function normalizeCommand(command) {
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
+}
+
+// Atualiza a função que processa mensagens de chat
+async function processMessage(channel, userstate, message, self) {
+    const channelName = channel.replace('#', '');
+    
+    try {
+        const normalizedMessage = normalizeCommand(message);
+        const isKnownCommand = global.botManager.isKnownCommand(normalizedMessage);
+        
+        // Obtém a configuração apropriada
+        const config = global.botManager.getCommandConfig(isKnownCommand);
+        
+        // Inicializa tracking do canal se necessário
+        if (!channelCommands.has(channelName)) {
+            channelCommands.set(channelName, new Map());
+        }
+        const commands = channelCommands.get(channelName);
+        
+        // Inicializa dados do comando
+        if (!commands.has(normalizedMessage)) {
+            commands.set(normalizedMessage, {
+                users: new Set(),
+                messages: [],
+                firstSeen: Date.now()
+            });
+        }
+
+        const cmdData = commands.get(normalizedMessage);
+        cmdData.users.add(userstate.username);
+        cmdData.messages.push({
+            user: userstate.username,
+            timestamp: Date.now()
+        });
+
+        // Limpa mensagens antigas
+        const now = Date.now();
+        cmdData.messages = cmdData.messages.filter(msg => 
+            now - msg.timestamp <= config.timeWindow
+        );
+
+        // Verifica se atingiu os critérios
+        const hasEnoughUsers = isKnownCommand ? 
+            cmdData.users.size >= config.minUsers :
+            (cmdData.users.size >= config.minUsers && 
+             cmdData.messages.length >= config.minMessages);
+
+        if (hasEnoughUsers) {
+            const timeSinceFirst = now - cmdData.firstSeen;
+            if (timeSinceFirst <= config.timeWindow) {
+                logger.info(`
+🎯 ${chalk.cyan(channelName)} at ${new Date().toLocaleTimeString()}
+Command: ${chalk.yellow(normalizedMessage)}
+${cmdData.users.size}/${config.minUsers} usuários diferentes enviaram ${cmdData.messages.length}/${isKnownCommand ? config.minUsers : config.minMessages} mensagens em ${Math.floor(timeSinceFirst/1000)}s
+${isKnownCommand ? '✓ Comando conhecido' : 'ℹ Padrão detectado'}
+                `);
+
+                // Inicia participação via BotManager
+                await global.botManager.participateInGiveaway(
+                    channel,
+                    normalizedMessage,
+                    isKnownCommand ? 'known_command' : 'pattern_detected'
+                );
+
+                // Limpa o comando após participar
+                commands.delete(normalizedMessage);
+            }
+        }
+    } catch (error) {
+        logger.error(`Erro ao processar mensagem em ${channelName}:`, error);
+    }
 }

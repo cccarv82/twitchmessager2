@@ -1,7 +1,9 @@
 const tmi = require('tmi.js');
 const { logger } = require('../logger');
-const fs = require('fs');
+const fs = require('fs').promises;
+const path = require('path');
 const ini = require('ini');
+const chalk = require('chalk');
 
 class BotManager {
     constructor() {
@@ -10,6 +12,7 @@ class BotManager {
         this.participationHistory = new Map();
         this.recentGiveaways = new Map();
         this.commandDetections = new Map(); // Para controlar detecções de comandos
+        this.recentParticipations = new Map();
         
         this.config = {
             participationTimeout: 10 * 60 * 1000,  // 10 minutos
@@ -36,6 +39,11 @@ class BotManager {
             }
         };
 
+        this.participationConfig = {
+            cooldown: 10 * 60 * 1000, // 10 minutos
+            exitDelay: 5000 // 5 segundos
+        };
+
         this.loadConfig();
 
         // Inicia monitoramento de conexões
@@ -59,7 +67,7 @@ class BotManager {
 
     async loadConfig() {
         try {
-            const configData = await fs.promises.readFile('./config.ini', 'utf8');
+            const configData = await fs.readFile('./config.ini', 'utf8');
             const config = ini.parse(configData);
 
             // Carrega configurações de comandos conhecidos
@@ -82,12 +90,10 @@ class BotManager {
                 };
             }
 
-            logger.info('Configurações carregadas:', {
-                known: this.commandsConfig.known,
-                unknown: this.commandsConfig.unknown
-            });
+            logger.info('Configurações do BotManager carregadas com sucesso');
         } catch (error) {
-            logger.error('Erro ao carregar configurações:', error);
+            logger.error('Erro ao carregar configurações do BotManager:', error);
+            throw error;
         }
     }
 
@@ -167,97 +173,48 @@ class BotManager {
 
     async connectBot(conta, canais) {
         try {
-            // Valida token
-            let token = conta.token;
-            if (!token.startsWith('oauth:')) {
-                token = `oauth:${token}`;
-            }
-
-            // Filtra canais blacklistados
-            const blacklistPlugin = global.pluginManager.plugins.get('Blacklist');
-            let canaisPermitidos = canais;
+            await this.debugLog(`Conectando bot ${conta.nome}...`);
             
-            if (blacklistPlugin) {
-                canaisPermitidos = canais.filter(channel => !blacklistPlugin.isChannelBlacklisted(channel));
-                logger.info(`${canais.length - canaisPermitidos.length} canais na blacklist foram ignorados`);
-            }
-
             const bot = new tmi.Client({
                 options: { 
-                    debug: false,  // Desativa debug
+                    debug: false,
                     skipMembership: true,
                     skipUpdatingEmotesets: true
                 },
                 connection: {
                     secure: true,
                     reconnect: true,
+                    timeout: 10000
                 },
                 identity: {
                     username: conta.nome,
-                    password: token
+                    password: conta.token.startsWith('oauth:') ? conta.token : `oauth:${conta.token}`
                 },
-                channels: conta.isListener ? canaisPermitidos : [],
-                logger: {
-                    info: () => {},  // Suprime logs info
-                    warn: () => {},  // Suprime logs warn
-                    error: (message) => {
-                        if (!message.includes('No response from Twitch')) {
-                            logger.error(message);
-                        }
-                    }
-                }
-            });
-
-            // Configura eventos de conexão
-            bot.on('connecting', () => {
-                logger.info(`Bot ${conta.nome} conectando...`);
-            });
-
-            bot.on('connected', async () => {
-                logger.info(`Bot ${conta.nome} conectado!`);
-                
-                // Se for listener, verifica se está em todos os canais
-                if (conta.isListener) {
-                    const currentChannels = bot.getChannels();
-                    const missingChannels = canaisPermitidos.filter(c => !currentChannels.includes(c));
-                    
-                    for (const channel of missingChannels) {
-                        try {
-                            await bot.join(channel);
-                            logger.info(`Bot ${conta.nome} entrou no canal: ${channel}`);
-                            await new Promise(resolve => setTimeout(resolve, 100));
-                        } catch (error) {
-                            logger.error(`Erro ao entrar no canal ${channel}:`, error);
-                        }
-                    }
-                }
+                // Listeners sempre em todos os canais, outros bots só no próprio canal
+                channels: conta.isListener ? canais.map(c => `#${c}`) : [`#${conta.nome}`]
             });
 
             await bot.connect();
+            await this.debugLog(`Bot ${conta.nome} conectado com sucesso`);
 
+            // Registra o bot na coleção apropriada
             if (conta.isListener) {
                 this.listeners.set(conta.nome, { bot, conta });
-                logger.info(`Listener ${conta.nome} conectado a ${canaisPermitidos.length} canais`);
-                
-                // Emite evento para plugins
-                global.pluginManager.emit('onBotConnected', {
-                    bot: conta.nome,
-                    type: 'listener',
-                    channels: canaisPermitidos.length
-                });
+                await this.debugLog(`${conta.nome} registrado como listener`);
             } else {
                 this.participants.set(conta.nome, { bot, conta });
-                logger.info(`Participante ${conta.nome} pronto`);
-                
-                // Emite evento para plugins
-                global.pluginManager.emit('onBotConnected', {
-                    bot: conta.nome,
-                    type: 'participant'
-                });
+                await this.debugLog(`${conta.nome} registrado como participante`);
             }
+
+            // Log do estado atual
+            await this.debugLog(`Estado atual:
+Listeners: ${Array.from(this.listeners.keys()).join(', ')}
+Participants: ${Array.from(this.participants.keys()).join(', ')}
+            `);
 
             return bot;
         } catch (error) {
+            await this.debugLog(`❌ ERRO ao conectar bot ${conta.nome}: ${error.message}`);
             logger.error(`Erro ao conectar bot ${conta.nome}:`, error);
             return null;
         }
@@ -277,70 +234,115 @@ class BotManager {
         return true;
     }
 
+    hasRecentParticipation(channel, command) {
+        const key = `${channel}:${command}`;
+        const lastParticipation = this.recentParticipations.get(key);
+        
+        if (!lastParticipation) return false;
+        
+        return (Date.now() - lastParticipation) < this.participationConfig.cooldown;
+    }
+
+    registerParticipation(channel, command) {
+        const key = `${channel}:${command}`;
+        this.recentParticipations.set(key, Date.now());
+    }
+
     async participateInGiveaway(channel, command, detectedBy) {
         const channelName = channel.replace('#', '');
         const normalizedCommand = command.toLowerCase().trim();
         
-        if (normalizedCommand.includes(' ')) return;
+        await this.debugLog(`\n=== NOVO SORTEIO DETECTADO ===`);
+        await this.debugLog(`Canal: ${channelName}`);
+        await this.debugLog(`Comando: ${normalizedCommand}`);
+        await this.debugLog(`Detectado por: ${detectedBy}`);
 
-        const isKnownCommand = this.isKnownCommand(normalizedCommand);
-        const config = this.getCommandConfig(isKnownCommand);
+        // Verifica se temos bots disponíveis
+        const listeners = Array.from(this.listeners.values());
+        const participants = Array.from(this.participants.values());
+        
+        await this.debugLog(`Listeners disponíveis: ${listeners.length}`);
+        await this.debugLog(`Participantes disponíveis: ${participants.length}`);
+
+        if (listeners.length === 0 && participants.length === 0) {
+            await this.debugLog(`❌ Nenhum bot disponível para participar`);
+            return;
+        }
+
+        // Verifica participação recente
         const key = `${channelName}:${normalizedCommand}`;
-
-        // Verifica se já participou recentemente
-        if (!isKnownCommand) {
-            const lastParticipation = this.recentGiveaways.get(key);
-            if (lastParticipation && (Date.now() - lastParticipation) < config.memoryCleanup) {
-                return;
-            }
+        if (this.recentParticipations.has(key)) {
+            await this.debugLog(`Participação recente encontrada para ${key}, ignorando...`);
+            return;
         }
 
         // Registra participação
-        this.recentGiveaways.set(key, Date.now());
+        this.recentParticipations.set(key, Date.now());
+        await this.debugLog(`Participação registrada para ${key}`);
 
-        // Log no console com informações mais detalhadas
-        const channelLink = `\u001b]8;;https://twitch.tv/${channelName}\u0007${chalk.cyan(channelName)}\u001b]8;;\u0007`;
-        logger.info(`
-            Participando de sorteio:
-            Canal: ${channelName}
-            Comando: ${normalizedCommand}
-            Tipo: ${isKnownCommand ? 'Conhecido' : 'Desconhecido'}
-            Config: ${JSON.stringify(config)}
-        `);
+        // Notifica DisplayManager sobre início da participação
+        DisplayManager.logParticipation({
+            channel: channelName,
+            command: normalizedCommand,
+            totalBots: listeners.length + participants.length,
+            type: 'start'
+        });
 
-        // Participa com todos os bots
-        const allBots = [
-            ...Array.from(this.listeners.entries()).map(([name, data]) => ({...data, name, isListener: true})),
-            ...Array.from(this.participants.entries()).map(([name, data]) => ({...data, name, isListener: false}))
-        ];
-
-        logger.info(`Participando com ${allBots.length} bots em ${channelName}`);
-
-        // Tenta com cada bot
-        for (const botData of allBots) {
-            if (this.hasParticipated(channelName, normalizedCommand, botData.name)) {
-                continue;
-            }
-
-            // Tenta até 3 vezes, com delay menor
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    await this.tryParticipate(botData.bot, channel, normalizedCommand, botData.name, botData.isListener);
-                    logger.info(`Bot ${botData.name} participou em ${channelName}`);
-                    break;
-                } catch (error) {
-                    logger.error(`Tentativa ${attempt}/3 falhou para ${botData.name} em ${channelName}`);
-                    if (attempt < 3) await new Promise(r => setTimeout(r, 500)); // Reduzido para 500ms
+        // Participa com cada bot
+        const allBots = [...listeners, ...participants];
+        for (const { bot, conta } of allBots) {
+            try {
+                if (!conta.isListener) {
+                    await this.debugLog(`Entrando no canal ${channelName} com ${conta.nome}`);
+                    await bot.join(`#${channelName}`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
+
+                await this.debugLog(`Enviando comando com ${conta.nome}`);
+                await bot.say(`#${channelName}`, normalizedCommand);
+                await this.debugLog(`✓ ${conta.nome} participou com sucesso`);
+
+                // Notifica DisplayManager sobre participação individual
+                DisplayManager.logParticipation({
+                    channel: channelName,
+                    command: normalizedCommand,
+                    bot: conta.nome,
+                    type: 'success'
+                });
+
+                if (!conta.isListener) {
+                    setTimeout(async () => {
+                        try {
+                            await bot.part(`#${channelName}`);
+                            await this.debugLog(`✓ ${conta.nome} saiu do canal`);
+                        } catch (error) {
+                            await this.debugLog(`❌ Erro ao sair: ${error.message}`);
+                        }
+                    }, 5000);
+                }
+            } catch (error) {
+                await this.debugLog(`❌ Erro com ${conta.nome}: ${error.message}`);
+                
+                // Notifica DisplayManager sobre erro
+                DisplayManager.logParticipation({
+                    channel: channelName,
+                    command: normalizedCommand,
+                    bot: conta.nome,
+                    type: 'error',
+                    error: error.message
+                });
             }
         }
 
-        // Notifica plugins
-        global.pluginManager.emit('onGiveawayParticipation', {
+        // Notifica DisplayManager sobre fim da participação
+        DisplayManager.logParticipation({
             channel: channelName,
             command: normalizedCommand,
-            isKnownCommand
+            totalBots: allBots.length,
+            type: 'complete'
         });
+
+        await this.debugLog(`=== FIM DA PARTICIPAÇÃO ===\n`);
     }
 
     getParticipatedBots(channel, command) {
@@ -419,30 +421,25 @@ class BotManager {
 
     cleanup() {
         const now = Date.now();
-        const fiveMinutesAgo = now - (5 * 60 * 1000);
-
-        // Limpa detecç��es antigas (após 5 minutos)
-        for (const [key, timestamp] of this.commandDetections) {
-            if (timestamp < fiveMinutesAgo) {
-                this.commandDetections.delete(key);
+        
+        // Limpa participações antigas (após 10 minutos)
+        for (const [key, timestamp] of this.recentParticipations) {
+            if (now - timestamp > 10 * 60 * 1000) {
+                this.recentParticipations.delete(key);
             }
         }
+    }
 
-        for (const [channel, commandMap] of this.participationHistory) {
-            for (const [command, participants] of commandMap) {
-                if (participants.size === 0) {
-                    commandMap.delete(command);
-                }
-            }
-            if (commandMap.size === 0) {
-                this.participationHistory.delete(channel);
-            }
-        }
-
-        for (const [channel, data] of this.activeChannels) {
-            if (now - data.timestamp > this.config.cleanupInterval) {
-                this.activeChannels.delete(channel);
-            }
+    async debugLog(message) {
+        const timestamp = new Date().toISOString();
+        const logMessage = `[${timestamp}] ${message}\n`;
+        
+        try {
+            // Garante que o diretório existe
+            await fs.mkdir('logs', { recursive: true });
+            await fs.appendFile('logs/debug.log', logMessage);
+        } catch (error) {
+            console.error('Erro ao salvar log:', error);
         }
     }
 }

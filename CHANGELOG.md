@@ -4,31 +4,38 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
-## [1.3.1] - 2024-03-20
+## [1.3.1] - 2024-03-21
 ### Adicionado
-- Sistema de análise de comportamento do chat com Machine Learning
-- Detecção de padrões por múltiplos usuários
-- Integração com Smart Keywords para aprendizado contínuo
-- Sistema de pontuação para redução de falsos positivos
-- Análise estatística de padrões de chat
+- Nova implementação de participação em sorteios
+- Sistema de entrada/saída automática de canais
+- Cooldown de 10 minutos por canal/comando
+- Logs detalhados de participação
+- Melhor integração com plugins
 
 ### Melhorado
-- Precisão na detecção de sorteios
-- Redução de participações em falsos positivos
-- Integração com sistema de plugins
-- Performance da análise de mensagens
-- Redução de ruído visual no console
-- Filtragem inteligente de mensagens de chat
-- Otimização da exibição de logs
-- Performance geral do monitoramento
+- Performance na participação
+- Gestão de conexões dos bots
+- Sistema de logs
+- Tratamento de erros
+
+## [1.3.0] - 2024-03-21
+### Adicionado
+- Nova implementação do sistema de participação em sorteios
+- Participação simultânea de todos os bots
+- Controle de cooldown por canal/comando
+- Logs detalhados de participações
+- Integração com sistema de plugins para participações
+
+### Melhorado
+- Performance na participação em sorteios
+- Gestão de memória para histórico de participações
+- Logs mais informativos
+- Integração com plugins existentes
 
 ### Corrigido
-- Mensagens de debug excessivas do Twitch
-- Sobrecarga de mensagens no console
-- Melhor formatação de mensagens relevantes
-- Removido log excessivo de mensagens do chat
-- Corrigida exibição do painel de monitoramento
-- Suprimidas mensagens de erro do curl
+- Problemas de rate limiting na participação
+- Duplicação de participações
+- Gestão de conexões dos bots
 
 ## [1.2.0] - 2024-03-20
 ### Adicionado
